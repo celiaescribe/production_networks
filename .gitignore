@@ -1,6 +1,5 @@
 GLORIA_MRIOs_57_2014/
 *.pdf
 .idea
-.gitignore
 .DS_Store
 misc.xml
