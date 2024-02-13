@@ -1,2 +1,6 @@
 GLORIA_MRIOs_57_2014/
-*.pdf 
+*.pdf
+.idea
+.gitignore
+.DS_Store
+misc.xml
