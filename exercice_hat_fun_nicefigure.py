@@ -5,10 +5,9 @@ from calibrate import CalibOutput
 from scipy.optimize import fsolve, root, minimize, approx_fprime
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
-import time
 from utils import add_long_description, flatten_index
 from dataclasses import dataclass
-
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
