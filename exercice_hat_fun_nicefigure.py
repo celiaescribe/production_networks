@@ -100,7 +100,7 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
     yi_hat = vec[N:2*N]
     pi_hat = pd.Series(pi_hat, index=sectors.index)
     yi_hat = pd.Series(yi_hat, index=sectors.index)
-    PSigmaY = pd.Series(index=psi.columns, data=vec[2*N:2*N+C])
+    PSigmaY = pd.Series(index=psi.columns, data=vec[2*N:2*N+C])  #
 
     if singlefactor:
         w_country = pd.Series(index=psi.columns, data=vec[2*N+C:2*N+2*C])
@@ -173,7 +173,7 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
         res1 = pi_hat ** (1 - theta) - (sectors['eta'] * vi_hat ** (1 - theta) + (1 - sectors['eta']) * (price_intermediate) ** (1 - theta))
 
     # Quantities
-    phi = sectors.loc[:, sectors.columns.str.contains('phi_')]
+    phi = sectors.loc[:, sectors.columns.str.contains('phi_')]  # share of final consumption in total output
     phi = phi.rename(columns=lambda x: x.split('_')[1])
     phi.columns.names = ['Country']  # TODO: modify in input directly
     assert phi.shape == final_demand.shape
@@ -276,27 +276,32 @@ def variation_emission(output_dict, emissions, sectors_dirty_energy, final_use_d
         intermediate_demand = output['intermediate_demand']
         yi_hat = output['yi_hat']
         final_demand = output['final_demand']
-        intermediate_demand_energy = intermediate_demand.loc[:, intermediate_demand.columns.get_level_values(1).isin(DIRTY_ENERGY_SECTORS)]
-        intermediate_demand_energy = (intermediate_demand_energy * sectors_dirty_energy).sum(axis=1)  # average variation of intermediate consumption of dirty energy
-        variation_emissions_energy = intermediate_demand_energy * emissions['share_energy_related']
-        variation_emissions_process = yi_hat * (1 - emissions['share_energy_related'])
-        final_demand_energy = final_demand.loc[final_demand.index.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS),
-                              :]
+        intermediate_demand_energy_dirty = intermediate_demand.loc[:, intermediate_demand.columns.get_level_values(1).isin(DIRTY_ENERGY_SECTORS)]
+        intermediate_demand_energy_dirty = (intermediate_demand_energy_dirty * sectors_dirty_energy).sum(axis=1)  # average variation of intermediate consumption of dirty energy
+        variation_emissions_energy = intermediate_demand_energy_dirty * emissions['share_energy_related']  # variation of emissions related to energy
+        variation_emissions_process = yi_hat * (1 - emissions['share_energy_related'])  # variation of emissions related to processes
+        final_demand_energy = final_demand.loc[final_demand.index.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS),:]
         final_demand_energy = (final_demand_energy * final_use_dirty_energy).sum(axis=0)  # average variation of final demand of dirty energy
-
+        # For final demand, we only consider the share of total emissions, not differentiated by fossil fuel
         total_variation_energy = ((emissions['share_emissions_total_sectors'] * (variation_emissions_energy + variation_emissions_process)).groupby('Country').sum() +
                                   emissions['share_emissions_total_finaldemand'].unstack('Country').sum(axis=0) * final_demand_energy)
         total_variation_energy = total_variation_energy.to_frame().rename(columns={0: f'emissions_{key}'})
+        total_variation_energy.loc['total'] = (total_variation_energy.squeeze() * (emissions['total'].groupby('Country').sum() / emissions.total.sum())).sum()  # we add total variation accounting for domestic and ROW emissions
+
         results = pd.concat([results, total_variation_energy], axis=1)
     return results
 
-
-filename = "outputs/calib_france.xlsx"
+code_country = {
+    'france': 'FRA',
+    'united_states_of_america': 'USA'
+}
+country = 'france'
+domestic_country = code_country[country]
+filename = f"outputs/calib_{country}.xlsx"
 fileshocks = "data_deep/shocks_interventions_large_demand.xlsx"
 
 calib = CalibOutput.from_excel(filename)
 sectors, emissions, xsi, psi, Omega, Gamma, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.Omega, calib.Gamma, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
-domestic_country = 'FRA'
 N = len(sectors)
 
 # sectors['gamma'] = 1.0

@@ -248,15 +248,13 @@ def get_main_stats(df, final_use):
     final_use_dirty_energy = final_use.loc[final_use.index.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS), :]
     final_use_dirty_energy = final_use_dirty_energy / final_use_dirty_energy.sum(axis=0)
 
-    sectors['eta'] = 1 - sectors['pmXi'] / sectors['pyi']
+    sectors['eta'] = 1 - sectors['pmXi'] / sectors['pyi']  # share of added value in total output
 
     sectors['phi'] = final_use.sum(axis=1) / sectors['pyi']
-
-    sectors['va'] = sectors['pyi'] - sectors['pmXi']  # we redefine va from other values, to ensure that data is correctly balanced
-
-    # for each country (ie, column) in final use, add a column f'phi_{country}' with the share of the sector in the total output sectors['pyi']
     for country in final_use.columns:
         sectors[f'phi_{country}'] = final_use[country] / sectors['pyi']
+
+    sectors['va'] = sectors['pyi'] - sectors['pmXi']  # we redefine va from other values, to ensure that data is correctly balanced
 
     sectors['gamma'] = value_added.loc['wli_over_vhi']
 

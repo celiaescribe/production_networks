@@ -15,7 +15,7 @@ from pathlib import Path
 # Define data path
 data_path = "GLORIA_MRIOs_57_2014"
 
-country = 'france'
+country = 'united_states_of_america'
 
 
 

@@ -56,7 +56,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     country = args.country  # we select the config we are interested in
 
-    # Read CSV files
+    # # Read CSV files
     T = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_T-Results_2014_057_Markup001(full).csv", header=None)  # transaction matrix
     V = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_V-Results_2014_057_Markup001(full).csv", header=None)  # value added matrix
     Y = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_Y-Results_2014_057_Markup001(full).csv", header=None)  # final demand matrix
