@@ -151,6 +151,7 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
 
     # Price for intermediate sectors goods, final demand (price index)
     if sigma == 1:
+        psi_new = (betai_hat * psi) / (betai_hat * psi).sum()
         price_index = betai_hat * psi * np.log(price_imports_finaldemand)
         price_index = np.exp(price_index.sum(axis=0))
     else:
@@ -358,6 +359,15 @@ for col in demand_shocks.columns:
     equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
                                         theta, sigma, epsilon, delta, mu)
     equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+
+    # Almost Cobb Douglas
+    theta, sigma, epsilon, delta, mu = 0.99, 0.99, 0.99, 0.99, 0.99
+    equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
+                                        theta, sigma, epsilon, delta, mu)
+    equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+
+    # I want to multiply domar['domestic_factor_labor_domar_hat'].groupby('Country') with sectors['rev_labor'].groupby('Country') and sum over sectors
+
 
 # list_methods = ['Nelder-Mead', 'CG', 'BFGS', 'L-BFGS-B', 'TNC', 'COBYLA', 'SLSQP', 'trust-constr']
 # list_methods = ['BFGS']

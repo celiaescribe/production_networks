@@ -242,7 +242,7 @@ def get_main_stats(df, final_use):
     psi = final_use.groupby('Sector').sum()  # sum of all final use
     psi = psi / psi.sum(axis=0)  # share of sector in final demand
     psi = psi.loc[original_order]
-    xsi = final_use.div(final_use.groupby('Sector').sum())
+    xsi = final_use.div(final_use.groupby('Sector').sum())  # share of each sector in the nest for final demand
 
     # share of final consumption in dirty energy sectors, for each of the countries
     final_use_dirty_energy = final_use.loc[final_use.index.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS), :]
@@ -272,16 +272,16 @@ def get_main_stats(df, final_use):
     sectors = pd.concat([sectors, share_labor, share_capital], axis=1)
 
     tmp = (sectors['gamma'] * sectors['va']).to_frame()
-    sectors['rev_labor'] =  tmp.div(sectors['va'].groupby('Country').sum(), axis=0).rename(columns={0: 'rev_labor'})  # GNE estimated from final use
+    sectors['rev_labor'] =  tmp.div(sectors['va'].groupby('Country').sum(), axis=0).rename(columns={0: 'rev_labor'})  # GNE estimated from value added
 
     tmp = ((1-sectors['gamma']) * sectors['va']).to_frame()
-    sectors['rev_capital'] =  tmp.div(sectors['va'].groupby('Country').sum(), axis=0).rename(columns={0: 'rev_capital'})  # GNE estimated from final use
+    sectors['rev_capital'] =  tmp.div(sectors['va'].groupby('Country').sum(), axis=0).rename(columns={0: 'rev_capital'})  # GNE estimated from value added
 
     total_GDP = sectors['va'].sum()
     assert total_GDP == sectors['va'].sum(), "Accounting equation is not verified for world GPD. It should be the same, whether calculated from value added or final use"
     share_GNE = sectors['va'].groupby('Country').sum() / total_GDP  # we rely on final_use to determine the share of each GNE in the total GDP (we could also have used value added)
 
-    domestic_domar_weights = sectors['pyi'] / final_use.sum()
+    domestic_domar_weights = sectors['pyi'] / sectors['va'].groupby('Country').sum()
     sectors['domestic_domar_weights'] = domestic_domar_weights
     return sectors, Gamma, Omega, Domestic, psi, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy
 
