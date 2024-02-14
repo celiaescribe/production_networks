@@ -271,16 +271,18 @@ def get_main_stats(df, final_use):
 
     sectors = pd.concat([sectors, share_labor, share_capital], axis=1)
 
-    # sectors['lambda'] = sectors['gamma'] * sectors['va'] / final_use.sum(axis=1)
-    # sectors['rho'] = (1 - sectors['gamma']) * sectors['va'] / final_use.sum(axis=1)
-
     tmp = (sectors['gamma'] * sectors['va']).to_frame()
-    sectors['rev_labor'] =  tmp.div(sectors.groupby('Country').sum()['va'], axis=0).rename(columns={0: 'rev_labor'})
+    sectors['rev_labor'] =  tmp.div(sectors['va'].groupby('Country').sum(), axis=0).rename(columns={0: 'rev_labor'})  # GNE estimated from final use
 
     tmp = ((1-sectors['gamma']) * sectors['va']).to_frame()
-    sectors['rev_capital'] =  tmp.div(sectors.groupby('Country').sum()['va'], axis=0).rename(columns={0: 'rev_capital'})
+    sectors['rev_capital'] =  tmp.div(sectors['va'].groupby('Country').sum(), axis=0).rename(columns={0: 'rev_capital'})  # GNE estimated from final use
 
-    share_GNE = final_use.sum(axis=0) / final_use.sum().sum()
+    total_GDP = sectors['va'].sum()
+    assert total_GDP == sectors['va'].sum(), "Accounting equation is not verified for world GPD. It should be the same, whether calculated from value added or final use"
+    share_GNE = sectors['va'].groupby('Country').sum() / total_GDP  # we rely on final_use to determine the share of each GNE in the total GDP (we could also have used value added)
+
+    domestic_domar_weights = sectors['pyi'] / final_use.sum()
+    sectors['domestic_domar_weights'] = domestic_domar_weights
     return sectors, Gamma, Omega, Domestic, psi, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy
 
 

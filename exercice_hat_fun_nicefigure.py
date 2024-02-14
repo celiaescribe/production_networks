@@ -60,7 +60,7 @@ class EquilibriumOutput:
     final_demand: pd.DataFrame
     domar: pd.DataFrame
     emissions_hat: pd.DataFrame
-    GDP: pd.Series
+    global_variables: pd.Series
     descriptions: pd.Series
 
     def to_excel(self, path):
@@ -71,7 +71,7 @@ class EquilibriumOutput:
                 (self.final_demand, "final_demand"),
                 (self.domar, "domar"),
                 (self.emissions_hat, "emissions_hat"),
-                (self.GDP, "GDP"),
+                (self.global_variables, "global_variables"),
                 (self.descriptions, "descriptions"),
             ]:
                 is_dataframe = type(current_df) is not pd.Series
@@ -161,7 +161,6 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
     # Final demand
     final_demand = (betai_hat * PSigmaY * price_index**(sigma) * price_imports_finaldemand**(mu - sigma) ).mul(pi_hat**(-mu), axis=0)
 
-
     # Intermediate demand
     intermediate_demand = (price_imports**(delta-epsilon)).mul(pi_hat**theta * yi_hat * price_intermediate**(epsilon-theta), axis=0) * pi_hat**(-delta)
 
@@ -209,23 +208,33 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
 
         res = np.concatenate([res1.to_numpy(), res2.to_numpy(), np.array([res3]), np.array([res4])])
 
-    domar = pi_hat * yi_hat / (PSigmaY * price_index)
     output = {
         'pi_hat': pi_hat,
         'yi_hat': yi_hat,
         'li_hat': li_hat,
         'ki_hat': ki_hat,
         'PSigmaY': PSigmaY,
+        'price_index': price_index,
+        'GDP': PSigmaY * price_index,
+        'domestic_domar': pi_hat * yi_hat / (PSigmaY * price_index),
+        'domar': pi_hat * yi_hat,
         'final_demand': final_demand,
-        'intermediate_demand': intermediate_demand,
-        'domar': domar
+        'intermediate_demand': intermediate_demand
     }
     if singlefactor:
         output['w_country'] = w_country
         output['r_country'] = r_country
+        output['domestic_factor_labor_domar'] = li_hat * w_country / output['GDP']
+        output['domestic_factor_capital_domar'] = ki_hat * r_country / output['GDP']
+        output['factor_labor_domar'] = li_hat * w_country
+        output['factor_capital_domar'] = ki_hat * r_country
     else:
         output['wi_hat'] = wi_hat
         output['ri_hat'] = ri_hat
+        output['domestic_factor_labor_domar'] = li_hat * wi_hat / output['GDP']
+        output['domestic_factor_capital_domar'] = ki_hat * ri_hat / output['GDP']
+        output['factor_labor_domar'] = li_hat * wi_hat
+        output['factor_capital_domar'] = ki_hat * ri_hat
     return res, output
 
 
@@ -256,8 +265,18 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Ome
     yi_hat = pd.concat([output_CD['yi_hat'].to_frame(name='quantity_CD_hat'), output_ref['yi_hat'].to_frame(name='quantity_hat'), output_single['yi_hat'].to_frame(name='quantity_single_hat')], axis=1)
     final_demand = pd.concat([output_CD['final_demand'].rename(columns={col: f'{col}_CD' for col in output_CD['final_demand'].columns}), output_ref['final_demand'].rename(columns={col: f'{col}' for col in output_ref['final_demand'].columns}),
          output_single['final_demand'].rename(columns={col: f'{col}_single' for col in output_single['final_demand'].columns})], axis=1)
+    domestic_domar = pd.concat([output_CD['domestic_domar'].to_frame(name='domestic_domar_CD_hat'), output_ref['domestic_domar'].to_frame(name='domestic_domar_hat'), output_single['domestic_domar'].to_frame(name='domestic_domar_single_hat')], axis=1)
     domar = pd.concat([output_CD['domar'].to_frame(name='domar_CD_hat'), output_ref['domar'].to_frame(name='domar_hat'), output_single['domar'].to_frame(name='domar_single_hat')], axis=1)
-    GDP = pd.concat([output_CD['PSigmaY'].rename({i: f'GDP_{i}_CD' for i in output_CD['PSigmaY'].index}), output_ref['PSigmaY'].rename({i: f'GDP_{i}_ref' for i in output_ref['PSigmaY'].index}), output_single['PSigmaY'].rename({i: f'GDP_{i}_ref' for i in output_single['PSigmaY'].index})])
+    domestic_factor_labor_domar = pd.concat([output_CD['domestic_factor_labor_domar'].to_frame(name='domestic_factor_labor_domar_CD_hat'), output_ref['domestic_factor_labor_domar'].to_frame(name='domestic_factor_labor_domar_hat'), output_single['domestic_factor_labor_domar'].to_frame(name='domestic_factor_labor_domar_single_hat')], axis=1)
+    factor_labor_domar = pd.concat([output_CD['factor_labor_domar'].to_frame(name='factor_labor_domar_CD_hat'), output_ref['factor_labor_domar'].to_frame(name='factor_labor_domar_hat'), output_single['factor_labor_domar'].to_frame(name='factor_labor_domar_single_hat')], axis=1)
+    domestic_factor_capital_domar = pd.concat([output_CD['domestic_factor_capital_domar'].to_frame(name='domestic_factor_capital_domar_CD_hat'), output_ref['domestic_factor_capital_domar'].to_frame(name='domestic_factor_capital_domar_hat'), output_single['domestic_factor_capital_domar'].to_frame(name='domestic_factor_capital_domar_single_hat')], axis=1)
+    factor_capital_domar = pd.concat([output_CD['factor_capital_domar'].to_frame(name='factor_capital_domar_CD_hat'), output_ref['factor_capital_domar'].to_frame(name='factor_capital_domar_hat'), output_single['factor_capital_domar'].to_frame(name='factor_capital_domar_single_hat')], axis=1)
+    domar_tot = pd.concat([domestic_domar, domar, domestic_factor_labor_domar, factor_labor_domar, domestic_factor_capital_domar, factor_capital_domar], axis=1)
+    real_GDP = pd.concat([output_CD['PSigmaY'].rename({i: f'real_GDP_{i}_CD' for i in output_CD['PSigmaY'].index}), output_ref['PSigmaY'].rename({i: f'real_GDP_{i}_ref' for i in output_ref['PSigmaY'].index}), output_single['PSigmaY'].rename({i: f'real_GDP_{i}_single' for i in output_single['PSigmaY'].index})])
+    price_index = pd.concat([output_CD['price_index'].rename({i: f'price_index_{i}_CD' for i in output_CD['price_index'].index}),
+                          output_ref['price_index'].rename({i: f'price_index_{i}_ref' for i in output_ref['price_index'].index}),
+                          output_single['price_index'].rename({i: f'price_index_{i}_single' for i in output_single['price_index'].index})])
+    global_variables = pd.concat([real_GDP, price_index], axis=0)
 
     output_dict = {
         'CD': output_CD,
@@ -266,7 +285,7 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Ome
     }
     emissions_hat = variation_emission(output_dict, emissions, sectors_dirty_energy, final_use_dirty_energy)
 
-    equilibrium_output = EquilibriumOutput(pi_hat, yi_hat, final_demand, domar, emissions_hat, GDP, descriptions)
+    equilibrium_output = EquilibriumOutput(pi_hat, yi_hat, final_demand, domar_tot, emissions_hat, global_variables, descriptions)
     return equilibrium_output
 
 
