@@ -57,6 +57,7 @@ class OptimizationContext:
 class EquilibriumOutput:
     pi_hat: pd.DataFrame
     yi_hat: pd.DataFrame
+    pi_imports_finaldemand: pd.DataFrame
     final_demand: pd.DataFrame
     domar: pd.DataFrame
     emissions_hat: pd.DataFrame
@@ -68,6 +69,7 @@ class EquilibriumOutput:
             for current_df, sheet_name in [
                 (self.pi_hat, "pi_hat"),
                 (self.yi_hat, "yi_hat"),
+                (self.pi_imports_finaldemand, "pi_imports_finaldemand"),
                 (self.final_demand, "final_demand"),
                 (self.domar, "domar"),
                 (self.emissions_hat, "emissions_hat"),
@@ -147,6 +149,7 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
     else:
         price_imports_finaldemand = xsi.mul(pi_hat**(1-mu), axis=0)
         price_imports_finaldemand = (price_imports_finaldemand.groupby(level='Sector').sum())**(1/(1-mu))
+    price_imports_finaldemand = price_imports_finaldemand.reindex(psi.index, axis=0)  # we reindex to ensure same order for interpretability
     assert price_imports_finaldemand.shape == psi.shape
 
     # Price for intermediate sectors goods, final demand (price index)
@@ -156,7 +159,7 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
         price_index = np.exp(price_index.sum(axis=0))
     else:
         price_index = betai_hat * psi * price_imports_finaldemand**(1-sigma)
-        price_index = (price_index.sum(axis=0))**(1/(1-sigma))
+        price_index = (price_index.sum(axis=0))**(1/(1-sigma))  # sum over all sectors
     assert price_index.shape == (C,)
 
     # Final demand
@@ -209,9 +212,18 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
 
         res = np.concatenate([res1.to_numpy(), res2.to_numpy(), np.array([res3]), np.array([res4])])
 
+    # budget_shares_new = final_demand.mul(pi_hat, axis=0) / (PSigmaY*price_index) * psi*xsi  # new budget shares
+    # variation_welfare = (PSigmaY - 1) + (price_index - 1) + np.log((budget_shares_new*pi_hat**(sigma - 1))**(1/(1-sigma))).sum()  # TODO: il faut modifier cela car avec le nest, ce n'est plus exactement cela.
+    #
+    final_demand_aggregator = ((xsi * final_demand**((mu-1)/mu)).sum(axis=0))**(mu/(mu-1))
+    final_demand_aggregator = ((xsi * final_demand**((mu-1)/mu)).groupby('Sector').sum())**(mu/(mu-1))
+    budget_shares_new_hat = final_demand_aggregator * price_imports_finaldemand / (PSigmaY*price_index)
+    budget_shares_new = budget_shares_new_hat * psi
+    variation_welfare = (PSigmaY - 1) + (price_index - 1) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
     output = {
         'pi_hat': pi_hat,
         'yi_hat': yi_hat,
+        'pi_imports_finaldemand': price_imports_finaldemand,
         'li_hat': li_hat,
         'ki_hat': ki_hat,
         'PSigmaY': PSigmaY,
@@ -220,7 +232,8 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
         'domestic_domar': pi_hat * yi_hat / (PSigmaY * price_index),
         'domar': pi_hat * yi_hat,
         'final_demand': final_demand,
-        'intermediate_demand': intermediate_demand
+        'intermediate_demand': intermediate_demand,
+        'variation_welfare': variation_welfare
     }
     if singlefactor:
         output['w_country'] = w_country
@@ -244,7 +257,7 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Ome
     singlefactor = False
 
     logging.info('Solving for Cobb-Douglas')
-    context = OptimizationContext(li_hat, ki_hat, betai_hat, 1, 1, 1, 1, 1, sectors, xsi, psi, Omega,
+    context = OptimizationContext(li_hat, ki_hat, betai_hat, 0.99, 0.99, 0.99, 0.99, 0.99, sectors, xsi, psi, Omega,
                                   Domestic, Delta, share_GNE, domestic_country, singlefactor)
     initial_guess = np.zeros(2 * N + 2)
     sol_CD, output_CD = context.solve_equilibrium(initial_guess, method='krylov')
@@ -266,6 +279,8 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Ome
     yi_hat = pd.concat([output_CD['yi_hat'].to_frame(name='quantity_CD_hat'), output_ref['yi_hat'].to_frame(name='quantity_hat'), output_single['yi_hat'].to_frame(name='quantity_single_hat')], axis=1)
     final_demand = pd.concat([output_CD['final_demand'].rename(columns={col: f'{col}_CD' for col in output_CD['final_demand'].columns}), output_ref['final_demand'].rename(columns={col: f'{col}' for col in output_ref['final_demand'].columns}),
          output_single['final_demand'].rename(columns={col: f'{col}_single' for col in output_single['final_demand'].columns})], axis=1)
+    pi_imports_finaldemand = pd.concat([output_CD['pi_imports_finaldemand'].rename(columns={col: f'{col}_CD' for col in output_CD['pi_imports_finaldemand'].columns}), output_ref['pi_imports_finaldemand'].rename(columns={col: f'{col}' for col in output_ref['pi_imports_finaldemand'].columns}),
+         output_single['pi_imports_finaldemand'].rename(columns={col: f'{col}_single' for col in output_single['pi_imports_finaldemand'].columns})], axis=1)
     domestic_domar = pd.concat([output_CD['domestic_domar'].to_frame(name='domestic_domar_CD_hat'), output_ref['domestic_domar'].to_frame(name='domestic_domar_hat'), output_single['domestic_domar'].to_frame(name='domestic_domar_single_hat')], axis=1)
     domar = pd.concat([output_CD['domar'].to_frame(name='domar_CD_hat'), output_ref['domar'].to_frame(name='domar_hat'), output_single['domar'].to_frame(name='domar_single_hat')], axis=1)
     domestic_factor_labor_domar = pd.concat([output_CD['domestic_factor_labor_domar'].to_frame(name='domestic_factor_labor_domar_CD_hat'), output_ref['domestic_factor_labor_domar'].to_frame(name='domestic_factor_labor_domar_hat'), output_single['domestic_factor_labor_domar'].to_frame(name='domestic_factor_labor_domar_single_hat')], axis=1)
@@ -277,7 +292,8 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Ome
     price_index = pd.concat([output_CD['price_index'].rename({i: f'price_index_{i}_CD' for i in output_CD['price_index'].index}),
                           output_ref['price_index'].rename({i: f'price_index_{i}_ref' for i in output_ref['price_index'].index}),
                           output_single['price_index'].rename({i: f'price_index_{i}_single' for i in output_single['price_index'].index})])
-    global_variables = pd.concat([real_GDP, price_index], axis=0)
+    variation_welfare = pd.concat([output_CD['variation_welfare'].rename({i: f'variation_welfare_{i}_CD' for i in output_CD['variation_welfare'].index}), output_ref['variation_welfare'].rename({i: f'variation_welfare_{i}_ref' for i in output_ref['variation_welfare'].index}), output_single['variation_welfare'].rename({i: f'variation_welfare_{i}_single' for i in output_single['variation_welfare'].index})])
+    global_variables = pd.concat([real_GDP, price_index, variation_welfare], axis=0)
 
     output_dict = {
         'CD': output_CD,
@@ -286,7 +302,7 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Ome
     }
     emissions_hat = variation_emission(output_dict, emissions, sectors_dirty_energy, final_use_dirty_energy)
 
-    equilibrium_output = EquilibriumOutput(pi_hat, yi_hat, final_demand, domar_tot, emissions_hat, global_variables, descriptions)
+    equilibrium_output = EquilibriumOutput(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar_tot, emissions_hat, global_variables, descriptions)
     return equilibrium_output
 
 
@@ -348,20 +364,14 @@ for col in demand_shocks.columns:
                                         theta, sigma, epsilon, delta, mu)
     equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
 
-    # Low elasticity calibration
-    theta, sigma, epsilon, delta, mu = 0.3, 0.7, 0.001, 0.9, 0.9
-    equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-                                        theta, sigma, epsilon, delta, mu)
-    equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
-
+    # # Low elasticity calibration
+    # theta, sigma, epsilon, delta, mu = 0.3, 0.7, 0.001, 0.9, 0.9
+    # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
+    #                                     theta, sigma, epsilon, delta, mu)
+    # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+    #
     # High calibration
-    theta, sigma, epsilon, delta, mu = 0.6, 0.9, 0.2, 0.9, 0.9
-    equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-                                        theta, sigma, epsilon, delta, mu)
-    equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
-
-    # Almost Cobb Douglas
-    theta, sigma, epsilon, delta, mu = 0.99, 0.99, 0.99, 0.99, 0.99
+    theta, sigma, epsilon, delta, mu = 0.9, 0.9, 0.9, 0.9, 0.9
     equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
                                         theta, sigma, epsilon, delta, mu)
     equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
