@@ -5,9 +5,10 @@ from calibrate import CalibOutput
 from scipy.optimize import fsolve, root, minimize, approx_fprime
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
-from utils import add_long_description, flatten_index
+from utils import add_long_description, flatten_index, unflatten_index_in_df
 from dataclasses import dataclass
 import time
+from pathlib import Path
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -91,6 +92,34 @@ class EquilibriumOutput:
                     sheet_name=sheet_name,
                     header=is_dataframe,
                     index=True)
+
+    @classmethod
+    def from_excel(cls, path):
+        with pd.ExcelFile(path) as xls:
+            pi_hat = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="pi_hat", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"])
+            yi_hat = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="yi_hat", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"])
+            pi_imports_finaldemand = pd.read_excel(xls, sheet_name="pi_imports_finaldemand", index_col=0).drop(columns="long_description")
+            final_demand = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="final_demand", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"])
+            domar = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="domar", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"]
+            )
+            emissions_hat = pd.read_excel(xls, sheet_name="emissions_hat", index_col=0)
+            global_variables = pd.read_excel(xls, sheet_name="global_variables", index_col=0, header=None).squeeze()
+            descriptions = pd.read_excel(xls, sheet_name="descriptions", index_col=0, header=None).squeeze()
+            descriptions.index.name = "Sector"
+            descriptions.name = 0
+        return cls(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar, emissions_hat, global_variables, descriptions)
 
 def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sectors, xsi, psi, Omega, Domestic, Delta, share_GNE, singlefactor=False, domestic_country = 'FRA'):
     N = len(sectors)  # number of sectors times countries
@@ -323,11 +352,67 @@ def variation_emission(output_dict, emissions, sectors_dirty_energy, final_use_d
         total_variation_energy = ((emissions['share_emissions_total_sectors'] * (variation_emissions_energy + variation_emissions_process)).groupby('Country').sum() +
                                   emissions['share_emissions_total_finaldemand'].unstack('Country').sum(axis=0) * final_demand_energy)
         total_variation_energy = total_variation_energy.to_frame().rename(columns={0: f'emissions_{key}'})
+        tmp = total_variation_energy.copy()  # relative variation of domestic emissions
         world_emissions = emissions[['total_sectors', 'final_demand']].sum().sum()
         total_variation_energy.loc['total'] = (total_variation_energy.squeeze() * (emissions[['total_sectors', 'final_demand']].groupby('Country').sum().sum(axis=1) / world_emissions)).sum()  # we add total variation accounting for domestic and ROW emissions
+        absolute_emissions = (tmp - 1).squeeze() * (emissions[['total_sectors', 'final_demand']].groupby('Country').sum().sum(axis=1))  # absolute variation of GHG emissions
+        absolute_emissions.index = [f'{i}_absolute' for i in absolute_emissions.index]
+        total_variation_energy = pd.concat([total_variation_energy, absolute_emissions.to_frame().rename(columns={0: f'emissions_{key}'})], axis=0)
 
         results = pd.concat([results, total_variation_energy], axis=1)
     return results
+
+
+def process_output(dict_paths):
+    """Creates an output file which contains the variation of emissions for each country and each sector"""
+    emissions_dict = dict()
+    welfare_dict = dict()
+    for k in dict_paths.keys():
+        equilibrium_output = EquilibriumOutput.from_excel(dict_paths[k])
+        emissions_dict[k] = equilibrium_output.emissions_hat
+        welfare_dict[k] = equilibrium_output.global_variables
+
+    # Get emissions variation
+    concatenated_dfs = []
+    for key, df in emissions_dict.items():
+        country = df.index[0]
+        c, sector = key.split(' - ')[0], key.split(' - ')[1]
+        transformed_df = df.loc[country] - 1
+        transformed_df = transformed_df.to_frame().T
+        transformed_df.index = pd.MultiIndex.from_product([transformed_df.index, [sector]], names=['Country', 'Sector'])
+        concatenated_dfs.append(transformed_df)
+    emissions_df = pd.concat(concatenated_dfs, axis=0)
+    emissions_df = emissions_df.rename(columns={
+        'emissions_CD': 'D+CD',
+        'emissions_ref': 'D+CD+CES',
+        'emissions_single': 'D'
+    })
+    emissions_df = emissions_df.reindex(['D', 'D+CD', 'D+CD+CES'], axis=1)
+    emissions_df.columns.names = ['Category']
+    emissions_df = emissions_df.stack()
+
+    # Get welfare variation
+    concatenated_dfs = []
+    for key, df in welfare_dict.items():
+        welfare = df[df.index.str.contains('welfare')]
+        welfare.index = pd.MultiIndex.from_tuples((i.split('_')[-2], i.split('_')[-1]) for i in welfare.index)
+        sector = key.split(' - ')[1]
+        # add a level to the index, which is always equal to sector
+        # current index of welfare is already multilevel
+        # we add a level to the index, which is always equal to sector
+        welfare.index = pd.MultiIndex.from_tuples((i[0], sector, i[1]) for i in welfare.index)
+        welfare.index.names=['Country', 'Sector', 'Category']
+        welfare = welfare.unstack()
+        concatenated_dfs.append(welfare)
+
+    welfare_df = pd.concat(concatenated_dfs, axis=0)
+    welfare_df = welfare_df.rename(columns={
+        'CD': 'D+CD',
+        'ref': 'D+CD+CES',
+        'single': 'D'
+    })
+    welfare_df = welfare_df.reindex(['D', 'D+CD', 'D+CD+CES'], axis=1)
+    return emissions_df, welfare_df
 
 
 if __name__ == '__main__':
@@ -337,7 +422,7 @@ if __name__ == '__main__':
         'united_states_of_america': 'USA',
         'europe': 'EUR'
     }
-    country = 'france'
+    country = 'europe'
     domestic_country = code_country[country]
     filename = f"outputs/calib_{country}.xlsx"
     fileshocks = "data_deep/shocks_interventions_large_demand.xlsx"
@@ -364,6 +449,7 @@ if __name__ == '__main__':
 
         # Preferences shocks are specific to domestic country
         betai_hat = betai_hat.reindex(psi.columns, axis=1, fill_value=1.0)
+
         betai_hat.index.names = ['Sector']
         betai_hat.columns.names = ['Country']
 
@@ -388,7 +474,19 @@ if __name__ == '__main__':
                                             theta, sigma, epsilon, delta, mu)
         equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
 
+        # eq2 = EquilibriumOutput.from_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+
         # I want to multiply domar['domestic_factor_labor_domar_hat'].groupby('Country') with sectors['rev_labor'].groupby('Country') and sum over sectors
+
+d = {
+    'EUR - Food': Path('outputs/EUR_food_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx'),
+    'FRA - Food': Path('outputs/FRA_food_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx'),
+    'EUR - Mobility': Path('outputs/EUR_distance_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx'),
+    'FRA - Mobility': Path('outputs/FRA_distance_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx')
+}
+emissions_df, welfare_df = process_output(d)
+
+
 
 
     # list_methods = ['Nelder-Mead', 'CG', 'BFGS', 'L-BFGS-B', 'TNC', 'COBYLA', 'SLSQP', 'trust-constr']
