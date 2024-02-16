@@ -219,7 +219,8 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
     final_demand_aggregator = ((xsi * final_demand**((mu-1)/mu)).groupby('Sector').sum())**(mu/(mu-1))
     budget_shares_new_hat = final_demand_aggregator * price_imports_finaldemand / (PSigmaY*price_index)
     budget_shares_new = budget_shares_new_hat * psi
-    variation_welfare = (PSigmaY - 1) + (price_index - 1) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
+    variation_welfare = np.log(PSigmaY * price_index) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
+    #
     output = {
         'pi_hat': pi_hat,
         'yi_hat': yi_hat,
