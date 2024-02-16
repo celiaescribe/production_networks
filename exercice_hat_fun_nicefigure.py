@@ -328,63 +328,72 @@ def variation_emission(output_dict, emissions, sectors_dirty_energy, final_use_d
         results = pd.concat([results, total_variation_energy], axis=1)
     return results
 
-code_country = {
-    'france': 'FRA',
-    'united_states_of_america': 'USA'
-}
-country = 'france'
-domestic_country = code_country[country]
-filename = f"outputs/calib_{country}.xlsx"
-fileshocks = "data_deep/shocks_interventions_large_demand.xlsx"
 
-calib = CalibOutput.from_excel(filename)
-sectors, emissions, xsi, psi, Omega, Gamma, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.Omega, calib.Gamma, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
-N = len(sectors)
+if __name__ == '__main__':
 
-# sectors['gamma'] = 1.0
-demand_shocks = pd.read_excel(fileshocks, index_col=0, header=0)
+    code_country = {
+        'france': 'FRA',
+        'united_states_of_america': 'USA'
+    }
+    country = 'france'
+    domestic_country = code_country[country]
+    filename = f"outputs/calib_{country}.xlsx"
+    fileshocks = "data_deep/shocks_interventions_large_demand.xlsx"
 
-for col in demand_shocks.columns:
-    logging.info(f"Shock {col}")
-    ki_hat = pd.Series(index=sectors.index, data=1)
-    li_hat = pd.Series(index=sectors.index, data=1)
+    calib = CalibOutput.from_excel(filename)
+    sectors, emissions, xsi, psi, Omega, Gamma, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.Omega, calib.Gamma, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
+    N = len(sectors)
 
-    betai_hat = demand_shocks[col]  # get specific shocks
-    betai_hat = betai_hat.to_frame()
-    betai_hat = betai_hat.rename(columns={betai_hat.columns[0]: domestic_country})
-    betai_hat = betai_hat.reindex(psi.columns, axis=1, fill_value=1.0)
-    betai_hat.index.names = ['Sector']
-    betai_hat.columns.names = ['Country']
+    # sectors['gamma'] = 1.0
+    demand_shocks = pd.read_excel(fileshocks, index_col=0, header=0)
 
-    # list_methods = ['hybr', 'lm', 'broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']
-    # list_methods = ['hybr', 'lm', 'krylov', 'df-sane', 'linearmixing', 'diagbroyden', ]
+    for col in demand_shocks.columns:
+        logging.info(f"Shock {col}")
+        ki_hat = pd.Series(index=sectors.index, data=1)
+        li_hat = pd.Series(index=sectors.index, data=1)
 
-    # Baseline calibration
-    theta, sigma, epsilon, delta, mu = 0.5, 0.9, 0.001, 0.9, 0.9
-    equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-                                        theta, sigma, epsilon, delta, mu)
-    equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+        betai_hat = demand_shocks[col]  # get specific shocks
+        betai_hat = betai_hat.to_frame()
+        betai_hat = betai_hat.rename(columns={betai_hat.columns[0]: domestic_country})
 
-    # # Low elasticity calibration
-    # theta, sigma, epsilon, delta, mu = 0.3, 0.7, 0.001, 0.9, 0.9
-    # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-    #                                     theta, sigma, epsilon, delta, mu)
-    # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
-    #
-    # High calibration
-    theta, sigma, epsilon, delta, mu = 0.9, 0.9, 0.9, 0.9, 0.9
-    equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-                                        theta, sigma, epsilon, delta, mu)
-    equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+        # Preferences shocks are shared across countries
+        # betai_hat = pd.concat([betai_hat]*len(psi.columns), axis=1)
+        # betai_hat.columns = psi.columns
 
-    # I want to multiply domar['domestic_factor_labor_domar_hat'].groupby('Country') with sectors['rev_labor'].groupby('Country') and sum over sectors
+        # Preferences shocks are specific to domestic country
+        betai_hat = betai_hat.reindex(psi.columns, axis=1, fill_value=1.0)
+        betai_hat.index.names = ['Sector']
+        betai_hat.columns.names = ['Country']
+
+        # list_methods = ['hybr', 'lm', 'broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']
+        # list_methods = ['hybr', 'lm', 'krylov', 'df-sane', 'linearmixing', 'diagbroyden', ]
+
+        # Baseline calibration
+        theta, sigma, epsilon, delta, mu = 0.5, 0.9, 0.001, 0.9, 0.9
+        equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
+                                            theta, sigma, epsilon, delta, mu)
+        equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+
+        # # Low elasticity calibration
+        # theta, sigma, epsilon, delta, mu = 0.3, 0.7, 0.001, 0.9, 0.9
+        # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
+        #                                     theta, sigma, epsilon, delta, mu)
+        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+        #
+        # High calibration
+        theta, sigma, epsilon, delta, mu = 0.9, 0.9, 0.9, 0.9, 0.9
+        equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
+                                            theta, sigma, epsilon, delta, mu)
+        equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+
+        # I want to multiply domar['domestic_factor_labor_domar_hat'].groupby('Country') with sectors['rev_labor'].groupby('Country') and sum over sectors
 
 
-# list_methods = ['Nelder-Mead', 'CG', 'BFGS', 'L-BFGS-B', 'TNC', 'COBYLA', 'SLSQP', 'trust-constr']
-# list_methods = ['BFGS']
-# for m in list_methods:
-#     print(m)
-#     # lvec_sol = minimize(residuals_wrapper, initial_guess, jac=lambda x,*args: approx_fprime(x,residuals_wrapper,1e-8,*args), hess='2-point', method=m, options={'maxiter': 10})
-#     # lvec_sol = minimize(residuals_wrapper, initial_guess, jac=lambda x: grad_residuals(residuals_wrapper, x), method=m, options={'maxiter': 10})
-#     lvec_sol = minimize(residuals_wrapper, initial_guess, method=m, options={'maxiter': 1})
-#     print(residuals_wrapper(lvec_sol.x))
+    # list_methods = ['Nelder-Mead', 'CG', 'BFGS', 'L-BFGS-B', 'TNC', 'COBYLA', 'SLSQP', 'trust-constr']
+    # list_methods = ['BFGS']
+    # for m in list_methods:
+    #     print(m)
+    #     # lvec_sol = minimize(residuals_wrapper, initial_guess, jac=lambda x,*args: approx_fprime(x,residuals_wrapper,1e-8,*args), hess='2-point', method=m, options={'maxiter': 10})
+    #     # lvec_sol = minimize(residuals_wrapper, initial_guess, jac=lambda x: grad_residuals(residuals_wrapper, x), method=m, options={'maxiter': 10})
+    #     lvec_sol = minimize(residuals_wrapper, initial_guess, method=m, options={'maxiter': 1})
+    #     print(residuals_wrapper(lvec_sol.x))
