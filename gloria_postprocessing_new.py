@@ -15,7 +15,7 @@ from pathlib import Path
 # Define data path
 data_path = "GLORIA_MRIOs_57_2014"
 
-country = 'united_states_of_america'
+country = 'europe'
 
 
 
@@ -127,7 +127,8 @@ country_dict = {
     'United States of America': 'USA',
     'Denmark': 'DNK',
     'Germany': 'DEU',
-    'Spain': 'SPA'
+    'Spain': 'SPA',
+    'Europe': 'EUR'
 }
 #
 finaldemand_dict = {

@@ -92,27 +92,42 @@ if __name__ == '__main__':
     # region['un_cat'] = region['Region_acronyms'].apply(lambda x: pycountry.countries.get(alpha_3=x).name if pycountry.countries.get(alpha_3=x) else None)
     #
     region.loc[region['Region_acronyms'] == 'XAF', 'un_cat'] = 'Africa'
-    region.loc[region['Region_acronyms'] == 'XAM', 'un_cat'] = 'Americas'
+    region.loc[region['Region_acronyms'] == 'XAM', 'un_cat'] = 'America'
     region.loc[region['Region_acronyms'] == 'XAS', 'un_cat'] = 'Asia'
     region.loc[region['Region_acronyms'] == 'XEU', 'un_cat'] = 'Europe'
     region.loc[region['Region_acronyms'] == 'SDS', 'un_cat'] = 'Africa'
     region.loc[region['Region_acronyms'] == 'DYE', 'un_cat'] = 'Asia'
 
     region_mapping = dict(zip(region['Region_names'], region['un_cat']))
-    region_mapping[country] = country  # country is kept separatly
 
-    row_mapping = {
-        country: country,
-        'Africa': 'RoW',
-        'Americas': 'RoW',
-        'Asia': 'RoW',
-        'Europe': 'RoW',
-        'Oceania': 'RoW',
-        'America': 'RoW'
-    }
+    # get unique values from region_mapping
+    unique_values = set(region_mapping.values())
 
-    region_mapping = {c: row_mapping[region_mapping[c]] for c in region_mapping.keys()}
+    if country != 'Europe':
+        region_mapping[country] = country  # country is kept separatly
 
+        row_mapping = {
+            country: country,
+            'Africa': 'RoW',
+            'Americas': 'RoW',
+            'Asia': 'RoW',
+            'Europe': 'RoW',
+            'Oceania': 'RoW',
+            'America': 'RoW'
+        }
+
+        region_mapping = {c: row_mapping[region_mapping[c]] for c in region_mapping.keys()}
+    else:  # we separate Europe from the Rest of the World
+        row_mapping = {
+            'Africa': 'RoW',
+            'Americas': 'RoW',
+            'Asia': 'RoW',
+            'Europe': 'Europe',
+            'Oceania': 'RoW',
+            'America': 'RoW'
+        }
+
+        region_mapping = {c: row_mapping[region_mapping[c]] for c in region_mapping.keys()}
 
     def map_country_to_region(country):
         return region_mapping.get(country, country)
@@ -157,7 +172,7 @@ if __name__ == '__main__':
     V.index = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in V.index])
     V.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in V.columns])
 
-    # Group by the new index and columns, and sum the values
+    # Group by regions, and sum the values
     V = V.groupby(level=[0, 1], axis=0).sum()
     V = V.groupby(level=[0, 1], axis=1).sum()
 
@@ -266,7 +281,7 @@ if __name__ == '__main__':
 
     list_emissions_energy = ['1A1a', '1A1bc', '1A1b', '1A1ci', '1A1cii', '1A2', '1A2a', '1A2b', '1A2c', '1A2d', '1A3e', '1A2f',
                              '1A2g', '1A2h', '1A2i', '1A2j', '1A2k', '1A2l', '1A2m', '1A3b', '1A3b_noRES', '1A3b_RES', '1A3a', '1A3c', '1A3d', '1A3e', '1A4', '1A4a', '1A4b', '1A4ci',
-                             '1A4cii', '1A4ciii', '1A5']
+                             '1A4cii', '1A4ciii', '1A5']  # activities related to energy GHG emissions (not process emissions)
     list_gas = ['co2']
 
     def create_new_index(names):

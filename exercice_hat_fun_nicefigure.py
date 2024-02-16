@@ -323,7 +323,8 @@ def variation_emission(output_dict, emissions, sectors_dirty_energy, final_use_d
         total_variation_energy = ((emissions['share_emissions_total_sectors'] * (variation_emissions_energy + variation_emissions_process)).groupby('Country').sum() +
                                   emissions['share_emissions_total_finaldemand'].unstack('Country').sum(axis=0) * final_demand_energy)
         total_variation_energy = total_variation_energy.to_frame().rename(columns={0: f'emissions_{key}'})
-        total_variation_energy.loc['total'] = (total_variation_energy.squeeze() * (emissions['total'].groupby('Country').sum() / emissions.total.sum())).sum()  # we add total variation accounting for domestic and ROW emissions
+        world_emissions = emissions[['total_sectors', 'final_demand']].sum().sum()
+        total_variation_energy.loc['total'] = (total_variation_energy.squeeze() * (emissions[['total_sectors', 'final_demand']].groupby('Country').sum().sum(axis=1) / world_emissions)).sum()  # we add total variation accounting for domestic and ROW emissions
 
         results = pd.concat([results, total_variation_energy], axis=1)
     return results
@@ -333,7 +334,8 @@ if __name__ == '__main__':
 
     code_country = {
         'france': 'FRA',
-        'united_states_of_america': 'USA'
+        'united_states_of_america': 'USA',
+        'europe': 'EUR'
     }
     country = 'france'
     domestic_country = code_country[country]

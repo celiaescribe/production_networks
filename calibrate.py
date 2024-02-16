@@ -188,7 +188,7 @@ def process_excel(file_path):
 def process_emissions(file_path_emissions_Z, file_path_emissions_Y):
     emissions_Z = pd.read_excel(file_path_emissions_Z, index_col=0, header=0)
     emissions_Z = emissions_Z.iloc[:,1:]
-    emissions_Z = emissions_Z[['GHG_total_OECD_consistent_ktco2eq', 'share_energy_related']].rename(columns={'GHG_total_OECD_consistent_ktco2eq': 'total'})
+    emissions_Z = emissions_Z[['GHG_total_OECD_consistent_ktco2eq', 'share_energy_related']].rename(columns={'GHG_total_OECD_consistent_ktco2eq': 'total_sectors'})
     # emissions_Z = emissions_Z.iloc[:,0].to_frame(name='sectors')
 
     emissions_Y = pd.read_excel(file_path_emissions_Y, index_col=0, header=0)
@@ -210,8 +210,8 @@ def process_emissions(file_path_emissions_Z, file_path_emissions_Y):
     emissions_total.index.names = ['Country', 'Sector']
 
     # get share of total emissions in the given country
-    emissions_total = emissions_total.assign(share_emissions_total_sectors = emissions_total['total'].div(emissions_total[['total', 'final_demand']].sum(axis=1).groupby(level='Country').sum()))  # we estimate the share of domestic emissions coming from different sectors
-    emissions_total = emissions_total.assign(share_emissions_total_finaldemand=emissions_total['final_demand'].div(emissions_total[['total', 'final_demand']].sum(axis=1).groupby(level='Country').sum()))
+    emissions_total = emissions_total.assign(share_emissions_total_sectors = emissions_total['total_sectors'].div(emissions_total[['total_sectors', 'final_demand']].sum(axis=1).groupby(level='Country').sum()))  # we estimate the share of domestic emissions coming from different sectors
+    emissions_total = emissions_total.assign(share_emissions_total_finaldemand=emissions_total['final_demand'].div(emissions_total[['total_sectors', 'final_demand']].sum(axis=1).groupby(level='Country').sum()))
 
     # share_emissions = emissions_total.div(emissions_total.sum(axis=1).groupby(level='Country').sum(), axis=0)
 
@@ -318,7 +318,7 @@ def networks_stats(Gamma, col_final_use, total_output):
     return result
 
 if __name__ == '__main__':
-    country = 'france'
+    country = 'united_states_of_america'
     file_path = f'data_deep/{country}_RoW_IO_table_2014.xlsx'
     file_path_emissions_Z = f'data_deep/{country}_RoW_emissions_Z_2014.xlsx'
     file_path_emissions_Y = f'data_deep/{country}_RoW_emissions_Y_2014.xlsx'
