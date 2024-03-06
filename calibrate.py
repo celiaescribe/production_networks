@@ -21,6 +21,7 @@ class CalibOutput:
     psi: pd.DataFrame
     Omega: pd.DataFrame
     Gamma: pd.DataFrame
+    Leontieff: pd.DataFrame
     Domestic: pd.DataFrame
     Delta: pd.DataFrame
     share_GNE: pd.Series
@@ -37,6 +38,7 @@ class CalibOutput:
                 (self.psi, "psi"),
                 (self.Omega, "Omega"),
                 (self.Gamma, "Gamma"),
+                (self.Leontieff, "Leontieff"),
                 (self.Domestic, "Domestic"),
                 (self.Delta, "Delta"),
                 (self.sectors_dirty_energy, "sectors_dirty_energy"),
@@ -89,6 +91,11 @@ class CalibOutput:
                 .drop(columns="long_description"),
                 axis=[0, 1], level_names=["Country", "Sector"]
             )
+            Leontieff = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="Leontieff", index_col=0)
+                .drop(columns="long_description"),
+                axis=[0, 1], level_names=["Country", "Sector"]
+            )
             Domestic = unflatten_index_in_df(
                 pd.read_excel(xls, sheet_name="Domestic", index_col=0)
                 .drop(columns="long_description"),
@@ -112,7 +119,7 @@ class CalibOutput:
             descriptions = pd.read_excel(xls, sheet_name="descriptions", index_col=0, header=None).squeeze()
             descriptions.index.name = "Sector"
             descriptions.name = 0
-        return cls(sectors, emissions, xsi, psi, Omega, Gamma, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
+        return cls(sectors, emissions, xsi, psi, Omega, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
 
     def equals(self, other):
         return (
@@ -122,6 +129,7 @@ class CalibOutput:
                 and same_df(self.psi, other.psi)
                 and same_df(self.Omega, other.Omega)
                 and same_df(self.Gamma, other.Gamma)
+                and same_df(self.Leontieff, other.Leontieff)
                 and same_df(self.Domestic, other.Domestic)
                 and same_df(self.Delta, other.Delta)
                 and same_df(self.sectors_dirty_energy, other.sectors_dirty_energy)
@@ -131,6 +139,7 @@ class CalibOutput:
 
 
 def process_excel(file_path):
+    """Read the excel file and process it to get the different dataframes, including IO table, value added and final use."""
     logging.info("Reading data")
     df = pd.read_excel(file_path, index_col=0, header=0)
     # first row should be the second level of the multiindex for columns
@@ -159,7 +168,6 @@ def process_excel(file_path):
 
     df.columns = pd.MultiIndex.from_arrays(split_codes_names(df.columns))
 
-
     value_added = df.loc[df.index.get_level_values(0).isin(value_added_names)]
     value_added = value_added.loc[:, ~ value_added.columns.get_level_values(1).isin(final_use_names)]
 
@@ -177,7 +185,7 @@ def process_excel(file_path):
 
     final_use[final_use < 0] = 0
     df[df < 0] = 0
-    df = df.T  # transposition: ligne i corresponds to what sector i uses.
+    df = df.T  # transpose: lign i corresponds to what sector i uses.
 
     value_added.loc['wli_over_vhi'] = value_added.loc['EmpComp'] / value_added.loc['ValueAdded']
 
@@ -186,6 +194,7 @@ def process_excel(file_path):
     return df, value_added, final_use, descriptions
 
 def process_emissions(file_path_emissions_Z, file_path_emissions_Y):
+    """Read the excel file and process it to get the different dataframes, including emissions from Z and Y."""
     emissions_Z = pd.read_excel(file_path_emissions_Z, index_col=0, header=0)
     emissions_Z = emissions_Z.iloc[:,1:]
     emissions_Z = emissions_Z[['GHG_total_OECD_consistent_ktco2eq', 'share_energy_related']].rename(columns={'GHG_total_OECD_consistent_ktco2eq': 'total_sectors'})
@@ -220,20 +229,22 @@ def process_emissions(file_path_emissions_Z, file_path_emissions_Y):
 def get_main_stats(df, final_use):
     logging.info("Main statistics")
     sectors = df.sum(axis=1).to_frame(name='pmXi')
-    sectors['pyi'] = df.sum(axis=0) + final_use.sum(axis=1)
+    sectors['pyi'] = df.sum(axis=0) + final_use.sum(axis=1)  # definition of total output, obtained from total intermediate consumption and final use
 
-    Gamma = df.div(sectors['pyi'], axis=0)
+    Gamma = df.div(sectors['pyi'], axis=0)  # direct coefficient matrix
+    Leontieff = np.linalg.inv(np.eye(len(Gamma)) - Gamma)  # Leontieff matrix
+    Leontieff = pd.DataFrame(Leontieff, index=Gamma.index, columns=Gamma.columns)
 
     original_order = df.columns.get_level_values('Sector').unique()
-    Omega = df.groupby(level='Sector', axis=1).sum()  # sum by sector
+    Omega = df.groupby(level='Sector', axis=1).sum()  # share of costs for each sector
     Omega = Omega[original_order]
-    Omega = Omega.div(sectors['pmXi'], axis=0)  # divide by total costs for each sector
+    Omega = Omega.div(sectors['pmXi'], axis=0)
 
     # share of intermediate consumption in dirty energy sectors
     sectors_dirty_energy = df.loc[:, df.columns.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS)]
     sectors_dirty_energy = sectors_dirty_energy.div(sectors_dirty_energy.sum(axis=1), axis=0)
 
-    Domestic = df.div(df.groupby(level='Sector', axis=1).sum(), axis=0)
+    Domestic = df.div(df.groupby(level='Sector', axis=1).sum(), axis=0)  # share of costs for each variety for each sector
     # This could also be written as Domestic = df / df.groupby(level='Sector', axis=1).sum()
 
     # assert that the sum of Domestic, grouped by Sector  is equal to 1
@@ -242,7 +253,7 @@ def get_main_stats(df, final_use):
     psi = final_use.groupby('Sector').sum()  # sum of all final use
     psi = psi / psi.sum(axis=0)  # share of sector in final demand
     psi = psi.loc[original_order]
-    xsi = final_use.div(final_use.groupby('Sector').sum())  # share of each sector in the nest for final demand
+    xsi = final_use.div(final_use.groupby('Sector').sum())  # share of each variety in the nest for final demand
 
     # share of final consumption in dirty energy sectors, for each of the countries
     final_use_dirty_energy = final_use.loc[final_use.index.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS), :]
@@ -253,6 +264,8 @@ def get_main_stats(df, final_use):
     sectors['phi'] = final_use.sum(axis=1) / sectors['pyi']
     for country in final_use.columns:
         sectors[f'phi_{country}'] = final_use[country] / sectors['pyi']
+
+    # assert Leontieff.mul(phi.mul(pyi, axis=0)[col], axis=0).sum(axis=0)
 
     sectors['va'] = sectors['pyi'] - sectors['pmXi']  # we redefine va from other values, to ensure that data is correctly balanced
 
@@ -283,7 +296,7 @@ def get_main_stats(df, final_use):
 
     domestic_domar_weights = sectors['pyi'] / sectors['va'].groupby('Country').sum()
     sectors['domestic_domar_weights'] = domestic_domar_weights
-    return sectors, Gamma, Omega, Domestic, psi, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy
+    return sectors, Gamma, Leontieff, Omega, Domestic, psi, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy
 
 
 def networks_stats(Gamma, col_final_use, total_output):
@@ -318,7 +331,7 @@ def networks_stats(Gamma, col_final_use, total_output):
     return result
 
 if __name__ == '__main__':
-    country = 'united_states_of_america'
+    country = 'europe'
     file_path = f'data_deep/{country}_RoW_IO_table_2014.xlsx'
     file_path_emissions_Z = f'data_deep/{country}_RoW_emissions_Z_2014.xlsx'
     file_path_emissions_Y = f'data_deep/{country}_RoW_emissions_Y_2014.xlsx'
@@ -327,8 +340,8 @@ if __name__ == '__main__':
 
     emissions_total = process_emissions(file_path_emissions_Z, file_path_emissions_Y)
 
-    sectors, Gamma, Omega, Domestic, psi, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy = get_main_stats(df, final_use)
-    calib = CalibOutput(sectors, emissions_total, xsi, psi, Omega, Gamma, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
+    sectors, Gamma, Leontieff, Omega, Domestic, psi, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy = get_main_stats(df, final_use)
+    calib = CalibOutput(sectors, emissions_total, xsi, psi, Omega, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
     calib.to_excel(f"outputs/calib_{country}.xlsx")
     calib2 = CalibOutput.from_excel(f"outputs/calib_{country}.xlsx")
     assert calib.equals(calib2)

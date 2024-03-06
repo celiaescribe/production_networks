@@ -17,6 +17,7 @@ DIRTY_ENERGY_SECTORS = ['Coal', 'Lignite', 'Petrol', 'Gas', 'Coke', 'Petro', 'Fu
 DIRTY_ENERGY_USE = ['Petro', 'FuelDist']
 
 class OptimizationContext:
+    """Class to solve the equilibrium of the model"""
     def __init__(self, li_hat,ki_hat, betai_hat, theta,sigma,epsilon,delta,mu, sectors, xsi, psi, Omega, Domestic, Delta, share_GNE, domestic_country, singlefactor):
         self.li_hat = li_hat
         self.ki_hat = ki_hat
@@ -44,6 +45,8 @@ class OptimizationContext:
         return res
 
     def solve_equilibrium(self, initial_guess, method='krylov'):
+        """Solves the equilibrium, using exact hat algebra. Specify the method used to find the solution (which is
+        equivalent to finding the zeros of the function."""
         t1 = time.time()
         lvec_sol = root(self.residuals_wrapper, initial_guess, method=method)
         t_m = time.time() - t1
@@ -56,6 +59,7 @@ class OptimizationContext:
 
 @dataclass
 class EquilibriumOutput:
+    """Class to save the outcome of the model."""
     pi_hat: pd.DataFrame
     yi_hat: pd.DataFrame
     pi_imports_finaldemand: pd.DataFrame
@@ -122,6 +126,8 @@ class EquilibriumOutput:
         return cls(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar, emissions_hat, global_variables, descriptions)
 
 def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sectors, xsi, psi, Omega, Domestic, Delta, share_GNE, singlefactor=False, domestic_country = 'FRA'):
+    """Function to compute the residuals of the model. Residuals are obtained from FOC from the model. The goal is then to
+    minimize this function in order to find its zeros, corresponding to the equilibrium."""
     N = len(sectors)  # number of sectors times countries
     S = len(psi)  # number of sectors
     C = xsi.shape[1] # number of countries
@@ -182,7 +188,7 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
     assert price_imports_finaldemand.shape == psi.shape
 
     # Price for intermediate sectors goods, final demand (price index)
-    if sigma == 1:
+    if sigma == 1:  # careful: this is actually no longer true for this specific subcase (because of the Cobb-Douglas assumption here)
         psi_new = (betai_hat * psi) / (betai_hat * psi).sum()
         price_index = betai_hat * psi * np.log(price_imports_finaldemand)
         price_index = np.exp(price_index.sum(axis=0))
@@ -244,10 +250,9 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
     # budget_shares_new = final_demand.mul(pi_hat, axis=0) / (PSigmaY*price_index) * psi*xsi  # new budget shares
     # variation_welfare = (PSigmaY - 1) + (price_index - 1) + np.log((budget_shares_new*pi_hat**(sigma - 1))**(1/(1-sigma))).sum()  # TODO: il faut modifier cela car avec le nest, ce n'est plus exactement cela.
     #
-    final_demand_aggregator = ((xsi * final_demand**((mu-1)/mu)).sum(axis=0))**(mu/(mu-1))
     final_demand_aggregator = ((xsi * final_demand**((mu-1)/mu)).groupby('Sector').sum())**(mu/(mu-1))
-    budget_shares_new_hat = final_demand_aggregator * price_imports_finaldemand / (PSigmaY*price_index)
-    budget_shares_new = budget_shares_new_hat * psi
+    budget_shares_hat = final_demand_aggregator * price_imports_finaldemand / (PSigmaY*price_index)
+    budget_shares_new = budget_shares_hat * psi
     variation_welfare = np.log(PSigmaY * price_index) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
     #
     output = {
@@ -284,6 +289,7 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
 
 def run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy,
                     final_use_dirty_energy, share_GNE, domestic_country, theta, sigma, epsilon, delta, mu):
+    """Solves the equilibrium, under different settings."""
     singlefactor = False
 
     logging.info('Solving for Cobb-Douglas')
@@ -336,36 +342,69 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Ome
     return equilibrium_output
 
 
+def get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_energy, final_use_dirty_energy):
+    """Computes variation in emissions based on variation of production, intermediate consumption and final demand.
+    We rely on some approximations for this calculation. In particular, we do not distinguish between different types of dirty
+    energy, and we only estimate an average variation in intermediate demand and final demand for these dirty energies. This
+    is because it is hard to estimate those from the initial EDGAR-related database."""
+    intermediate_demand_energy_dirty = intermediate_demand.loc[:,
+                                       intermediate_demand.columns.get_level_values(1).isin(DIRTY_ENERGY_SECTORS)]
+    intermediate_demand_energy_dirty = (intermediate_demand_energy_dirty * sectors_dirty_energy).sum(
+        axis=1)  # average variation of intermediate consumption of dirty energy for each sector
+    variation_emissions_energy = intermediate_demand_energy_dirty * emissions[
+        'share_energy_related']  # variation of emissions related to energy
+    variation_emissions_process = yi_hat * (
+                1 - emissions['share_energy_related'])  # variation of emissions related to processes
+    final_demand_energy = final_demand.loc[final_demand.index.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS), :]
+    final_demand_energy = (final_demand_energy * final_use_dirty_energy).sum(
+        axis=0)  # average variation of final demand of dirty energy
+    # For final demand, we only consider the share of total emissions, not differentiated by fossil fuel
+    total_variation_emissions = ((emissions['share_emissions_total_sectors'] * (
+                variation_emissions_energy + variation_emissions_process)).groupby('Country').sum() +
+                              emissions['share_emissions_total_finaldemand'].unstack('Country').sum(
+                                  axis=0) * final_demand_energy)
+    return total_variation_emissions
+
+
+def get_emissions_total(total_variation_emissions, emissions):
+    """Computes absolute variations of emissions, based on relative variations, and data on world emissions."""
+    tmp = total_variation_emissions.copy()  # relative variation of domestic emissions
+    world_emissions = emissions[['total_sectors', 'final_demand']].sum().sum()
+    total_variation_emissions.loc['total'] = (total_variation_emissions.squeeze() * (
+                emissions[['total_sectors', 'final_demand']].groupby('Country').sum().sum(
+                    axis=1) / world_emissions)).sum()  # we add total variation accounting for domestic and ROW emissions
+    absolute_emissions = (tmp - 1).squeeze() * (
+        emissions[['total_sectors', 'final_demand']].groupby('Country').sum().sum(
+            axis=1))  # absolute variation of GHG emissions
+    absolute_emissions.index = [f'{i}_absolute' for i in absolute_emissions.index]
+    return absolute_emissions
+
 def variation_emission(output_dict, emissions, sectors_dirty_energy, final_use_dirty_energy):
+    """Estimations variation in emissions in the new equilibrium, compared to reference."""
     results = pd.DataFrame()
+    total_variation_emissions_io = input_output_calculation(betai_hat, Leontieff, Gamma, sectors, sectors_dirty_energy, final_use_dirty_energy)
+    total_variation_emissions_io = total_variation_emissions_io.to_frame().rename(columns={0: f'emissions_IO'})
+    absolute_emissions_io = get_emissions_total(total_variation_emissions_io, emissions)
+    total_variation_emissions_io = pd.concat([total_variation_emissions_io, absolute_emissions_io.to_frame().rename(columns={0: f'emissions_IO'})], axis=0)
+    results = pd.concat([results, total_variation_emissions_io], axis=1)
     for key, output in output_dict.items():
         intermediate_demand = output['intermediate_demand']
         yi_hat = output['yi_hat']
         final_demand = output['final_demand']
-        intermediate_demand_energy_dirty = intermediate_demand.loc[:, intermediate_demand.columns.get_level_values(1).isin(DIRTY_ENERGY_SECTORS)]
-        intermediate_demand_energy_dirty = (intermediate_demand_energy_dirty * sectors_dirty_energy).sum(axis=1)  # average variation of intermediate consumption of dirty energy
-        variation_emissions_energy = intermediate_demand_energy_dirty * emissions['share_energy_related']  # variation of emissions related to energy
-        variation_emissions_process = yi_hat * (1 - emissions['share_energy_related'])  # variation of emissions related to processes
-        final_demand_energy = final_demand.loc[final_demand.index.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS),:]
-        final_demand_energy = (final_demand_energy * final_use_dirty_energy).sum(axis=0)  # average variation of final demand of dirty energy
-        # For final demand, we only consider the share of total emissions, not differentiated by fossil fuel
-        total_variation_energy = ((emissions['share_emissions_total_sectors'] * (variation_emissions_energy + variation_emissions_process)).groupby('Country').sum() +
-                                  emissions['share_emissions_total_finaldemand'].unstack('Country').sum(axis=0) * final_demand_energy)
-        total_variation_energy = total_variation_energy.to_frame().rename(columns={0: f'emissions_{key}'})
-        tmp = total_variation_energy.copy()  # relative variation of domestic emissions
-        world_emissions = emissions[['total_sectors', 'final_demand']].sum().sum()
-        total_variation_energy.loc['total'] = (total_variation_energy.squeeze() * (emissions[['total_sectors', 'final_demand']].groupby('Country').sum().sum(axis=1) / world_emissions)).sum()  # we add total variation accounting for domestic and ROW emissions
-        absolute_emissions = (tmp - 1).squeeze() * (emissions[['total_sectors', 'final_demand']].groupby('Country').sum().sum(axis=1))  # absolute variation of GHG emissions
-        absolute_emissions.index = [f'{i}_absolute' for i in absolute_emissions.index]
-        total_variation_energy = pd.concat([total_variation_energy, absolute_emissions.to_frame().rename(columns={0: f'emissions_{key}'})], axis=0)
+        total_variation_emissions = get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_energy, final_use_dirty_energy)
+        total_variation_emissions = total_variation_emissions.to_frame().rename(columns={0: f'emissions_{key}'})
+        absolute_emissions = get_emissions_total(total_variation_emissions, emissions)
+        total_variation_emissions = pd.concat([total_variation_emissions, absolute_emissions.to_frame().rename(columns={0: f'emissions_{key}'})], axis=0)
 
-        results = pd.concat([results, total_variation_energy], axis=1)
+        results = pd.concat([results, total_variation_emissions], axis=1)
     return results
 
 
 def process_output(dict_paths):
-    """Creates an output file which contains the variation of emissions for each country and each sector"""
+    """Creates an output file which contains the variation of emissions for each country and each sector, in correct format.
+    Function is used for plots only."""
     emissions_dict = dict()
+    emissions_absolute_dict = dict()
     welfare_dict = dict()
     for k in dict_paths.keys():
         equilibrium_output = EquilibriumOutput.from_excel(dict_paths[k])
@@ -374,6 +413,18 @@ def process_output(dict_paths):
 
     # Get emissions variation
     concatenated_dfs = []
+    concatenated_dfs_2 = []
+
+    def rename_index(L, country):
+        new_index = []
+        for i in L:
+            tmp = i.split('_absolute')[0]
+            if tmp == country:
+                new_index.append('Dom.')
+            else:
+                new_index.append('RoW')
+        return new_index
+
     for key, df in emissions_dict.items():
         country = df.index[0]
         c, sector = key.split(' - ')[0], key.split(' - ')[1]
@@ -381,6 +432,12 @@ def process_output(dict_paths):
         transformed_df = transformed_df.to_frame().T
         transformed_df.index = pd.MultiIndex.from_product([transformed_df.index, [sector]], names=['Country', 'Sector'])
         concatenated_dfs.append(transformed_df)
+
+        emissions_absolute = df.iloc[-2:,:]
+
+        emissions_absolute.index = rename_index(emissions_absolute.index, country)
+        emissions_absolute.index = pd.MultiIndex.from_product([[country], [sector], emissions_absolute.index], names=['Country', 'Sector', 'Category'])
+        concatenated_dfs_2.append(emissions_absolute)
     emissions_df = pd.concat(concatenated_dfs, axis=0)
     emissions_df = emissions_df.rename(columns={
         'emissions_CD': 'D+CD',
@@ -391,6 +448,19 @@ def process_output(dict_paths):
     emissions_df.columns.names = ['Category']
     emissions_df = emissions_df.stack()
 
+    emissions_absolute_df = pd.concat(concatenated_dfs_2, axis=0)
+    emissions_absolute_df = emissions_absolute_df.rename(columns={
+        'emissions_CD': 'D+CD',
+        'emissions_ref': 'D+CD+CES',
+        'emissions_single': 'D'
+    })
+    emissions_absolute_df = emissions_absolute_df.reindex(['D', 'D+CD', 'D+CD+CES'], axis=1)
+    emissions_absolute_df = emissions_absolute_df.stack()
+    # rename last level of index from None to Effect
+    # the level is the last level
+    emissions_absolute_df.index = emissions_absolute_df.index.set_names('Effect', level=-1)
+
+
     # Get welfare variation
     concatenated_dfs = []
     for key, df in welfare_dict.items():
@@ -400,7 +470,7 @@ def process_output(dict_paths):
         # add a level to the index, which is always equal to sector
         # current index of welfare is already multilevel
         # we add a level to the index, which is always equal to sector
-        welfare.index = pd.MultiIndex.from_tuples((i[0], sector, i[1]) for i in welfare.index)
+        welfare.index = pd.MultiIndex.from_tuples((sector, i[0], i[1]) for i in welfare.index)
         welfare.index.names=['Country', 'Sector', 'Category']
         welfare = welfare.unstack()
         concatenated_dfs.append(welfare)
@@ -412,7 +482,48 @@ def process_output(dict_paths):
         'single': 'D'
     })
     welfare_df = welfare_df.reindex(['D', 'D+CD', 'D+CD+CES'], axis=1)
-    return emissions_df, welfare_df
+
+    with pd.ExcelWriter(Path('outputs/welfare.xlsx')) as writer:
+        welfare_df.to_excel(
+            writer,
+            header=True,
+            index=True)
+
+    with pd.ExcelWriter(Path('outputs/emissions.xlsx')) as writer:
+        emissions_df.to_excel(
+            writer,
+            header=True,
+            index=True)
+
+    with pd.ExcelWriter(Path('outputs/emissions_absolute_df.xlsx')) as writer:
+        emissions_absolute_df.to_excel(
+            writer,
+            header=True,
+            index=True)
+    return emissions_df, emissions_absolute_df, welfare_df
+
+
+def input_output_calculation(betai_hat, Leontieff, Gamma, sectors, sectors_dirty_energy, final_use_dirty_energy):
+    """Takes vector of shocks and outputs estimated variation in emissions from simple input output framework.
+    This framework does not include any price effect, and only relies on Leontieff matrix and direct input coefficients
+    matrix."""
+    # We calculate share of production that stems from final demand
+    phi = sectors.loc[:, sectors.columns.str.contains('phi_')]  # share of final consumption in total output
+    phi = phi.rename(columns=lambda x: x.split('_')[1])
+    phi.columns.names = ['Country']
+    pyi = sectors.loc[:, 'pyi']
+    final_use_init = phi.mul(pyi, axis=0)  # final use expenditures in the initial state
+
+    final_use_new = betai_hat.copy() * final_use_init  # we calculate new final use
+
+    pyi_new = Leontieff.mul(final_use_new.sum(axis=1), axis=0).sum(axis=0)  # we calculate required production from the Leontieff accounting equation y = L^T b
+    yi_hat = pyi_new / pyi  # we calculate the relative variation for y, assuming there are no price changes in this setting
+
+    final_demand = betai_hat.copy()
+    intermediate_demand_hat = pd.concat([yi_hat]*len(Leontieff), axis=1)
+    intermediate_demand_hat.columns = Gamma.columns
+    variation_emissions = get_emissions_hat(yi_hat, intermediate_demand_hat, final_demand, sectors_dirty_energy, final_use_dirty_energy)
+    return variation_emissions
 
 
 if __name__ == '__main__':
@@ -425,10 +536,10 @@ if __name__ == '__main__':
     country = 'europe'
     domestic_country = code_country[country]
     filename = f"outputs/calib_{country}.xlsx"
-    fileshocks = "data_deep/shocks_interventions_large_demand.xlsx"
+    fileshocks = "data_deep/shocks_demand_06032024.xlsx"
 
     calib = CalibOutput.from_excel(filename)
-    sectors, emissions, xsi, psi, Omega, Gamma, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.Omega, calib.Gamma, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
+    sectors, emissions, xsi, psi, Omega, Gamma, Leontieff, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.Omega, calib.Gamma, calib.Leontieff, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
     N = len(sectors)
 
     # sectors['gamma'] = 1.0
@@ -461,22 +572,37 @@ if __name__ == '__main__':
         equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
                                             theta, sigma, epsilon, delta, mu)
         equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
-
-        # # Low elasticity calibration
-        # theta, sigma, epsilon, delta, mu = 0.3, 0.7, 0.001, 0.9, 0.9
+        #
+        #
+        # # Substitution with imports calibration for production
+        # theta, sigma, epsilon, delta, mu = 0.5, 0.9, 0.001, 5, 0.9
         # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
         #                                     theta, sigma, epsilon, delta, mu)
         # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+
+        # # Substitution with imports calibration for final demand
+        # theta, sigma, epsilon, delta, mu = 0.5, 0.9, 0.001, 0.9, 5
+        # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
+        #                                     theta, sigma, epsilon, delta, mu)
+        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+
         #
-        # High calibration
-        theta, sigma, epsilon, delta, mu = 0.9, 0.9, 0.9, 0.9, 0.9
-        equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-                                            theta, sigma, epsilon, delta, mu)
-        equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+        # # # Low elasticity calibration
+        # # theta, sigma, epsilon, delta, mu = 0.3, 0.7, 0.001, 0.9, 0.9
+        # # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
+        # #                                     theta, sigma, epsilon, delta, mu)
+        # # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
+        # #
+        # # High calibration
+        # theta, sigma, epsilon, delta, mu = 0.9, 0.9, 0.9, 0.9, 0.9
+        # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
+        #                                     theta, sigma, epsilon, delta, mu)
+        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_all.xlsx")
 
         # eq2 = EquilibriumOutput.from_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
 
         # I want to multiply domar['domestic_factor_labor_domar_hat'].groupby('Country') with sectors['rev_labor'].groupby('Country') and sum over sectors
+
 
 d = {
     'EUR - Food': Path('outputs/EUR_food_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx'),
@@ -484,7 +610,16 @@ d = {
     'EUR - Mobility': Path('outputs/EUR_distance_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx'),
     'FRA - Mobility': Path('outputs/FRA_distance_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx')
 }
-emissions_df, welfare_df = process_output(d)
+
+# d = {
+#     'EUR - Food': Path('outputs/EUR_all_food_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx'),
+#     'FRA - Food': Path('outputs/FRA_all_food_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx'),
+#     'EUR - Mobility': Path('outputs/EUR_all_distance_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx'),
+#     'FRA - Mobility': Path('outputs/FRA_all_distance_theta0.5_sigma0.9_epsilon0.001_delta0.9_mu0.9.xlsx')
+# }
+
+emissions_df, emissions_absolute_df, welfare_df = process_output(d)
+
 
 
 
