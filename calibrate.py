@@ -386,7 +386,7 @@ def networks_stats(Gamma, col_final_use, total_output):
     return result
 
 if __name__ == '__main__':
-    country = 'europe'
+    country = 'france'
     file_path = f'data_deep/{country}_RoW_IO_table_2014.xlsx'
     file_path_emissions_Z = f'data_deep/{country}_RoW_emissions_Z_2014.xlsx'
     file_path_emissions_Y = f'data_deep/{country}_RoW_emissions_Y_2014.xlsx'

@@ -20,7 +20,7 @@ ENERGY_SECTORS = DIRTY_ENERGY_SECTORS +  ['Power']
 
 class OptimizationContext:
     """Class to solve the equilibrium of the model"""
-    def __init__(self, li_hat,ki_hat, betai_hat, theta,sigma,epsilon,delta,mu, nu, sectors, xsi, psi, costs_energy_final, psi_energy,
+    def __init__(self, li_hat,ki_hat, betai_hat, theta,sigma,epsilon,delta,mu, nu, kappa, sectors, xsi, psi, costs_energy_final, psi_energy,
                  psi_non_energy, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor):
         self.li_hat = li_hat
         self.ki_hat = ki_hat
@@ -31,6 +31,7 @@ class OptimizationContext:
         self.delta = delta
         self.mu = mu
         self.nu = nu
+        self.kappa = kappa
         self.sectors = sectors
         self.xsi = xsi
         self.psi = psi
@@ -50,7 +51,7 @@ class OptimizationContext:
     def residuals_wrapper(self, lvec):
         # Call the original function but only return the first output
         res, *_ = residuals(lvec, self.li_hat, self.ki_hat, self.betai_hat, self.theta, self.sigma, self.epsilon, self.delta,
-                            self.mu, self.nu, self.sectors, self.xsi, self.psi, self.costs_energy_final, self.psi_energy, self.psi_non_energy,
+                            self.mu, self.nu, self.kappa, self.sectors, self.xsi, self.psi, self.costs_energy_final, self.psi_energy, self.psi_non_energy,
                             self.Omega, self.costs_energy, self.Omega_energy, self.Omega_non_energy, self.Domestic, self.Delta,
                             self.share_GNE, singlefactor=self.singlefactor, domestic_country=self.domestic_country)
         # return (res**2).sum()
@@ -65,7 +66,7 @@ class OptimizationContext:
         residual = (self.residuals_wrapper(lvec_sol.x) ** 2).sum()
         logging.info(f"Method: {method:10s}, Time: {t_m:5.1f}, Residual: {residual:10.2e}")
         res, output = residuals(lvec_sol.x, self.li_hat, self.ki_hat, self.betai_hat, self.theta, self.sigma, self.epsilon,
-                                self.delta, self.mu, self.nu, self.sectors, self.xsi, self.psi, self.costs_energy_final, self.psi_energy, self.psi_non_energy,
+                                self.delta, self.mu, self.nu, self.kappa, self.sectors, self.xsi, self.psi, self.costs_energy_final, self.psi_energy, self.psi_non_energy,
                                 self.Omega, self.costs_energy, self.Omega_energy, self.Omega_non_energy, self.Domestic,
                                 self.Delta, self.share_GNE, singlefactor=self.singlefactor, domestic_country=self.domestic_country)
         return lvec_sol.x, output
@@ -139,10 +140,19 @@ class EquilibriumOutput:
             descriptions.name = 0
         return cls(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar, emissions_hat, global_variables, descriptions)
 
-def residuals(lvec, li_hat, ki_hat, betai_hat, theta, sigma, epsilon, delta, mu, nu, sectors, xsi, psi, costs_energy_final, psi_energy,
+def residuals(lvec, li_hat, ki_hat, betai_hat, theta, sigma, epsilon, delta, mu, nu, kappa, sectors, xsi, psi, costs_energy_final, psi_energy,
               psi_non_energy, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, singlefactor=False, domestic_country = 'FRA'):
     """Function to compute the residuals of the model. Residuals are obtained from FOC from the model. The goal is then to
-    minimize this function in order to find its zeros, corresponding to the equilibrium."""
+    minimize this function in order to find its zeros, corresponding to the equilibrium.
+    #######
+    theta: elasticity between labor/capital and intermediate inputs for production
+    sigma: elasticity between goods in final demand
+    epsilon: elasticity between intermediate inputs in production
+    delta: elasticity between goods in import nest for production
+    mu: elasticity between goods in import nest for final demand
+    nu: elasticity between energy and non-energy intermediate inputs in production
+    kappa: elasticity between energy and non-energy goods in final demand
+    """
     N = len(sectors)  # number of sectors times countries
     S = len(psi)  # number of sectors
     C = xsi.shape[1] # number of countries
@@ -197,7 +207,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, theta, sigma, epsilon, delta, mu,
         price_intermediate_non_energy = Omega_non_energy * price_imports.loc[:,~price_imports.columns.isin(ENERGY_SECTORS)]**(1-epsilon)
         price_intermediate_non_energy = price_intermediate_non_energy.sum(axis=1)**(1/(1-epsilon))
 
-    # Intermediate price between energy and non-energy nest
+    # Intermediate price shared by all sectors, between energy and non-energy nest
     if nu == 1:
         price_intermediate = (costs_energy['energy'] * np.log(price_intermediate_energy) + costs_energy['non_energy'] * np.log(price_intermediate_non_energy))
         price_intermediate = np.exp(price_intermediate)
@@ -208,11 +218,11 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, theta, sigma, epsilon, delta, mu,
     price_intermediate_energy.columns = ENERGY_SECTORS
     price_intermediate_non_energy = pd.concat([price_intermediate_non_energy]*len(Omega_non_energy.columns ), axis=1)  # this price is shared by all non-energy sectors
     price_intermediate_non_energy.columns = Omega_non_energy.columns
-    price_intermediate_energy_overall = pd.concat([price_intermediate_energy, price_intermediate_non_energy], axis=1)  # we create a price vector for all sectors
+    price_intermediate_energy_overall = pd.concat([price_intermediate_energy, price_intermediate_non_energy], axis=1)  # we aggregate the price for energy and non-energy nest, for calculation purposes
     price_intermediate_energy_overall.columns.name = 'Sector'
 
     # Intermediate demand
-    # intermediate_demand = (price_imports**(delta-epsilon)).mul(pi_hat**theta * yi_hat * price_intermediate**(epsilon-theta), axis=0) * pi_hat**(-delta)  # old version without energy nest
+    # intermediate_demand = (price_imports**(delta-epsilon)).mul(yi_hat * pi_hat**theta  * price_intermediate**(epsilon-theta), axis=0) * pi_hat**(-delta)  # old version without energy nest
     intermediate_demand = (price_intermediate_energy_overall**(epsilon - nu) * price_imports**(delta-epsilon)).mul(yi_hat * pi_hat**theta * price_intermediate**(nu-theta), axis=0) * pi_hat**(-delta)
 
     if singlefactor:  # li_hat and ki_hat are endogenous in this case
@@ -236,25 +246,53 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, theta, sigma, epsilon, delta, mu,
     price_imports_finaldemand = price_imports_finaldemand.reindex(psi.index, axis=0)  # we reindex to ensure same order for interpretability
     assert price_imports_finaldemand.shape == psi.shape
 
-    # Price for intermediate sectors goods, final demand (price index)
-    if sigma == 1:  # careful: this is actually no longer true for this specific subcase (because of the Cobb-Douglas assumption here)
-        psi_new = (betai_hat * psi) / (betai_hat * psi).sum()
-        price_index = betai_hat * psi * np.log(price_imports_finaldemand)
-        price_index = np.exp(price_index.sum(axis=0))
+    # # Price for intermediate sectors goods, final demand (price index)
+    # if sigma == 1:  # careful: this is actually no longer true for this specific subcase (because of the Cobb-Douglas assumption here)
+    #     psi_new = (betai_hat * psi) / (betai_hat * psi).sum()
+    #     price_index = betai_hat * psi * np.log(price_imports_finaldemand)
+    #     price_index = np.exp(price_index.sum(axis=0))
+    # else:
+    #     price_index = betai_hat * psi * price_imports_finaldemand**(1-sigma)
+    #     price_index = (price_index.sum(axis=0))**(1/(1-sigma))  # sum over all sectors
+    # assert price_index.shape == (C,)
+
+    # Price for intermediate energy sectors goods in final demand
+    if sigma == 1:
+        pass
     else:
-        price_index = betai_hat * psi * price_imports_finaldemand**(1-sigma)
-        price_index = (price_index.sum(axis=0))**(1/(1-sigma))  # sum over all sectors
-    assert price_index.shape == (C,)
+        price_index_energy = betai_hat.loc[betai_hat.index.isin(ENERGY_SECTORS), :] * psi_energy * price_imports_finaldemand.loc[price_imports_finaldemand.index.isin(ENERGY_SECTORS), :]**(1-sigma)
+        price_index_energy = price_index_energy.sum(axis=0)**(1/(1-sigma))
+
+    # Price for intermediate non-energy sectors goods in final demand
+    if sigma == 1:
+        pass
+    else:
+        price_index_non_energy = betai_hat.loc[~betai_hat.index.isin(ENERGY_SECTORS), :] * psi_non_energy * price_imports_finaldemand.loc[~price_imports_finaldemand.index.isin(ENERGY_SECTORS),:]**(1-sigma)
+        price_index_non_energy = price_index_non_energy.sum(axis=0)**(1/(1-sigma))
+
+    # Intermediate price index between energy and non-energy nest in final demand
+    if kappa == 1:
+        pass
+    else:
+        price_index = (costs_energy_final.loc['energy'] * price_index_energy**(1-kappa) + costs_energy_final.loc['non_energy'] * price_index_non_energy**(1-kappa))**(1/(1-kappa))
+
+    price_index_energy = pd.concat([price_index_energy.to_frame().T]*len(ENERGY_SECTORS), axis=0)  # this price is shared by all energy sectors
+    price_index_energy.index = ENERGY_SECTORS
+    price_index_non_energy = pd.concat([price_index_non_energy.to_frame().T]*len(psi_non_energy.index ), axis=0)  # this price is shared by all non-energy sectors
+    price_index_non_energy.index = psi_non_energy.index
+    price_index_energy_overall = pd.concat([price_index_energy, price_index_non_energy], axis=0)  # we create a price vector for all sectors
+    price_index_energy_overall.index.name = 'Sector'
 
     # Final demand
-    final_demand = (betai_hat * PSigmaY * price_index**(sigma) * price_imports_finaldemand**(mu - sigma) ).mul(pi_hat**(-mu), axis=0)
+    # final_demand = (betai_hat * PSigmaY * price_index**(sigma) * price_imports_finaldemand**(mu - sigma) ).mul(pi_hat**(-mu), axis=0)
+    final_demand = (betai_hat * PSigmaY * price_index**(kappa) *  price_index_energy_overall**(sigma - kappa) * price_imports_finaldemand**(mu - sigma) ).mul(pi_hat**(-mu), axis=0)
 
     ### Residuals
     # Prices
     if theta == 1:
         res1 = np.log(pi_hat) - (sectors['eta'] * np.log(vi_hat) + (1 - sectors['eta']) * np.log(price_intermediate))
     else:
-        res1 = pi_hat ** (1 - theta) - (sectors['eta'] * vi_hat ** (1 - theta) + (1 - sectors['eta']) * (price_intermediate) ** (1 - theta))
+        res1 = pi_hat ** (1 - theta) - (sectors['eta'] * vi_hat ** (1 - theta) + (1 - sectors['eta']) * price_intermediate ** (1 - theta))
 
     # Quantities
     phi = sectors.loc[:, sectors.columns.str.contains('phi_')]  # share of final consumption in total output
@@ -335,19 +373,19 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, theta, sigma, epsilon, delta, mu,
 
 def run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, costs_energy_final, psi_energy, psi_non_energy,
                     Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, Delta, sectors_dirty_energy,
-                    final_use_dirty_energy, share_GNE, domestic_country, theta, sigma, epsilon, delta, mu, nu):
+                    final_use_dirty_energy, share_GNE, domestic_country, theta, sigma, epsilon, delta, mu, nu, kappa):
     """Solves the equilibrium, under different settings."""
     singlefactor = False
 
     logging.info('Solving for Cobb-Douglas')
-    context = OptimizationContext(li_hat, ki_hat, betai_hat, 0.99, 0.99, 0.99, 0.99, 0.99, 0.99,
+    context = OptimizationContext(li_hat, ki_hat, betai_hat, 0.99, 0.99, 0.99, 0.99, 0.99, 0.99, 0.99,
                                   sectors, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, Omega, costs_energy,
                                   Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor)
     initial_guess = np.zeros(2 * N + 2)
     sol_CD, output_CD = context.solve_equilibrium(initial_guess, method='krylov')
 
     logging.info('Solving for reference')
-    context_ref = OptimizationContext(li_hat, ki_hat, betai_hat, theta, sigma, epsilon, delta, mu, nu,
+    context_ref = OptimizationContext(li_hat, ki_hat, betai_hat, theta, sigma, epsilon, delta, mu, nu, kappa,
                                       sectors, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, Omega, costs_energy,
                                       Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor)
     initial_guess = np.zeros(2 * N + 2)
@@ -355,7 +393,7 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, cos
 
     logging.info('Solving for single factor')
     singlefactor = True
-    context_single = OptimizationContext(li_hat, ki_hat, betai_hat, theta, sigma, epsilon, delta, mu, nu,
+    context_single = OptimizationContext(li_hat, ki_hat, betai_hat, theta, sigma, epsilon, delta, mu, nu, kappa,
                                          sectors, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, Omega, costs_energy,
                                          Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor)
     initial_guess = np.zeros(2 * N + 6)
@@ -622,43 +660,45 @@ if __name__ == '__main__':
         # nu: elasticity between energy and non-energy intermediate inputs
 
         # Baseline calibration
-        theta, sigma, epsilon, delta, mu, nu = 0.5, 0.9, 0.001, 0.9, 0.9, 0.5
+        theta, sigma, epsilon, delta, mu, nu, kappa = 0.5, 0.9, 0.001, 0.9, 0.9, 0.5, 0.9
         equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, costs_energy_final,
                                              psi_energy, psi_non_energy, Omega, costs_energy, Omega_energy, Omega_non_energy,
                                              Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-                                             theta, sigma, epsilon, delta, mu, nu)
-        equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}.xlsx")
+                                             theta, sigma, epsilon, delta, mu, nu, kappa)
+        equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}.xlsx")
 
         # # Substitution with imports calibration for production
-        # theta, sigma, epsilon, delta, mu = 0.5, 0.9, 0.001, 5, 0.9
+        # theta, sigma, epsilon, delta, mu, nu, kappa = 0.5, 0.9, 0.001, 5, 0.9, 0.5, 0.5
         # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, costs_energy_final,
         #                                      psi_energy, psi_non_energy, Omega, costs_energy, Omega_energy, Omega_non_energy,
         #                                      Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-        #                                      theta, sigma, epsilon, delta, mu, nu)
-        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}.xlsx")
+        #                                      theta, sigma, epsilon, delta, mu, nu, kappa)
+        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}.xlsx")
 
         # # Substitution with imports calibration for final demand
-        # theta, sigma, epsilon, delta, mu = 0.5, 0.9, 0.001, 0.9, 5
+        # theta, sigma, epsilon, delta, mu, nu, kappa = 0.5, 0.9, 0.001, 0.9, 5, 0.5, 0.5
         # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, costs_energy_final,
         #                                      psi_energy, psi_non_energy, Omega, costs_energy, Omega_energy, Omega_non_energy,
         #                                      Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-        #                                      theta, sigma, epsilon, delta, mu, nu)
-        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}.xlsx")
+        #                                      theta, sigma, epsilon, delta, mu, nu, kappa)
+        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}.xlsx")
 
         #
         # # Low elasticity calibration
-        # theta, sigma, epsilon, delta, mu = 0.3, 0.7, 0.001, 0.9, 0.9
+        # theta, sigma, epsilon, delta, mu, nu, kappa = 0.3, 0.7, 0.001, 0.9, 0.9, 0.5, 0.5
         # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, costs_energy_final,
         #                                      psi_energy, psi_non_energy, Omega, costs_energy, Omega_energy, Omega_non_energy,
         #                                      Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-        #                                      theta, sigma, epsilon, delta, mu, nu)
-        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}.xlsx")
+        #                                      theta, sigma, epsilon, delta, mu, nu, kappa)
+        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}.xlsx")
         # #
         # # High calibration
-        # theta, sigma, epsilon, delta, mu = 0.9, 0.9, 0.9, 0.9, 0.9
-        # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, Omega, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-        #                                     theta, sigma, epsilon, delta, mu, nu)
-        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_all.xlsx")
+        # theta, sigma, epsilon, delta, mu, nu, kappa = 0.9, 0.9, 0.9, 0.9, 0.9, 0.5, 0.5
+        # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, sectors, emissions, xsi, psi, costs_energy_final,
+        #                                      psi_energy, psi_non_energy, Omega, costs_energy, Omega_energy, Omega_non_energy,
+        #                                      Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
+        #                                      theta, sigma, epsilon, delta, mu, nu, kappa)
+        # equilibrium_output.to_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}_all.xlsx")
 
         # eq2 = EquilibriumOutput.from_excel(f"outputs/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}.xlsx")
 
