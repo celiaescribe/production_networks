@@ -7,9 +7,14 @@ index = pd.MultiIndex.from_tuples(
     product(("France", "US"), ("Food", "Transport", "Wheat")),
     names=["Country", "Sector"],
 )
+index_col = pd.Index(["France", "US"], name="Country")
+
 gamma = pd.DataFrame(
     index=index, columns=index, data=np.arange(len(index)**2).reshape(len(index), len(index))
 )
+
+x = pd.DataFrame(index=index, columns=index_col, data=np.arange(len(index)*len(index_col)).reshape(len(index), len(index_col)  ))
+y = pd.DataFrame(index=index, columns=["US", "France"], data=np.arange(len(index)*len(index_col)).reshape(len(index), len(index_col)  ))
 
 p = pd.Series(index=gamma.index[::-1], data=np.arange(6))
 
