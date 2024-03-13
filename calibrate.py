@@ -330,20 +330,22 @@ def get_main_stats(df, final_use):
 
     empcomp = value_added.loc['EmpComp'].to_frame(name='share_labor')
     share_labor = empcomp.div(empcomp.groupby('Country').sum())
+    share_labor_tot = (empcomp / empcomp.sum()).rename(columns={'share_labor': 'share_labor_tot'})
     # empcomp.squeeze() / empcomp.groupby('Country').sum().squeeze()   # other way to write that
 
     value_added.loc['Capital'] = value_added.loc['ValueAdded'] - value_added.loc['EmpComp']  # we define capital as the rest of the added value apart from labor
     assert (value_added.loc['Capital'] >= 0).all()
     capital = value_added.loc['Capital'].to_frame(name='share_capital')
-    share_capital = capital.div(capital.groupby('Country').sum())
+    share_capital = capital.div(capital.groupby('Country').sum())  # we work here under the assumption that the wage is the same across all sectors, so that the share of labor is equal to the share of labor revenue
+    share_capital_tot = (capital / capital.sum()).rename(columns={'share_capital': 'share_capital_tot'})
 
-    sectors = pd.concat([sectors, share_labor, share_capital], axis=1)
+    sectors = pd.concat([sectors, share_labor, share_capital, share_labor_tot, share_capital_tot], axis=1)
 
-    tmp = (sectors['gamma'] * sectors['va']).to_frame()
-    sectors['rev_labor'] =  tmp.div(sectors['va'].groupby('Country').sum(), axis=0).rename(columns={0: 'rev_labor'})  # GNE estimated from value added
+    tmp = (sectors['gamma'] * sectors['va']).to_frame()  # payments for labor
+    sectors['rev_labor'] =  tmp.div(sectors['va'].groupby('Country').sum(), axis=0).rename(columns={0: 'rev_labor'})  # share of total added value from country from labor revenues
 
-    tmp = ((1-sectors['gamma']) * sectors['va']).to_frame()
-    sectors['rev_capital'] =  tmp.div(sectors['va'].groupby('Country').sum(), axis=0).rename(columns={0: 'rev_capital'})  # GNE estimated from value added
+    tmp = ((1-sectors['gamma']) * sectors['va']).to_frame()  # payments for capital
+    sectors['rev_capital'] =  tmp.div(sectors['va'].groupby('Country').sum(), axis=0).rename(columns={0: 'rev_capital'})  # share of total added value from country from capital revenues
 
     total_GDP = sectors['va'].sum()
     assert total_GDP == sectors['va'].sum(), "Accounting equation is not verified for world GPD. It should be the same, whether calculated from value added or final use"
@@ -386,7 +388,7 @@ def networks_stats(Gamma, col_final_use, total_output):
     return result
 
 if __name__ == '__main__':
-    country = 'france'
+    country = 'europe'
     file_path = f'data_deep/{country}_RoW_IO_table_2014.xlsx'
     file_path_emissions_Z = f'data_deep/{country}_RoW_emissions_Z_2014.xlsx'
     file_path_emissions_Y = f'data_deep/{country}_RoW_emissions_Y_2014.xlsx'
