@@ -271,8 +271,8 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     if sigma == 1:
         pass
     else:
-        price_index_energy = betai_hat.loc[betai_hat.index.isin(ENERGY_SECTORS), :] * psi_energy * (price_imports_finaldemand.loc[price_imports_finaldemand.index.isin(ENERGY_SECTORS), :])**(1-sigma)
-        price_index_energy = price_index_energy.sum(axis=0)**(1/(1-sigma))
+        price_index_energy = betai_hat.loc[betai_hat.index.isin(ENERGY_SECTORS), :] * psi_energy * (price_imports_finaldemand.loc[price_imports_finaldemand.index.isin(ENERGY_SECTORS), :])**(1-epsilon)
+        price_index_energy = price_index_energy.sum(axis=0)**(1/(1-epsilon))
 
     # Price for intermediate non-energy sectors goods in final demand
     if sigma == 1:
@@ -347,18 +347,19 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
 
     else:  # sector specific factors
         # Definition of GDP in other country
-        wi_hat_dom = wi_hat.xs(domestic_country, level='Country', axis=0)
-        ri_hat_dom = ri_hat.xs(domestic_country, level='Country', axis=0)
-        res4 =(rev_labor_dom  * li_hat_dom  * wi_hat_dom).sum() + (rev_capital_dom  * ki_hat_dom  * ri_hat_dom).sum() - (PSigmaY * price_index)[domestic_country]
+        wi_hat_dom = wi_hat.xs('ROW', level='Country', axis=0)
+        ri_hat_dom = ri_hat.xs('ROW', level='Country', axis=0)
+        res4 =(rev_labor_dom  * li_hat_dom  * wi_hat_dom).sum() + (rev_capital_dom  * ki_hat_dom  * ri_hat_dom).sum() - (PSigmaY * price_index)['ROW']
 
         res = np.concatenate([res1.to_numpy(), res2.to_numpy(), np.array([res3]), np.array([res4])])
 
     # budget_shares_new = final_demand.mul(pi_hat, axis=0) / (PSigmaY*price_index) * psi*xsi  # new budget shares
     # variation_welfare = (PSigmaY - 1) + (price_index - 1) + np.log((budget_shares_new*pi_hat**(sigma - 1))**(1/(1-sigma))).sum()  # TODO: il faut modifier cela car avec le nest, ce n'est plus exactement cela.
     #
+    # TODO: this aggregation is no longer valid, due to the new energy nest. Should be done again.
     final_demand_aggregator = ((xsi * final_demand**((mu-1)/mu)).groupby('Sector').sum())**(mu/(mu-1))
     budget_shares_hat = final_demand_aggregator * price_imports_finaldemand / (PSigmaY*price_index)
-    budget_shares_new = budget_shares_hat * psi
+    budget_shares_new = budget_shares_hat * psi  # new budget shares, compiled from the hat and the initial version
     variation_welfare = np.log(PSigmaY * price_index) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
     #
     output = {
@@ -755,7 +756,7 @@ if __name__ == '__main__':
         # kappa: elasticity between energy and non-energy final demand
 
         # Baseline calibration
-        theta, sigma, epsilon, delta, mu, nu, kappa = 0.5, 0.9, 0.001, 0.9, 0.9, 0.7, 0.9
+        theta, sigma, epsilon, delta, mu, nu, kappa = 0.5, 0.9, 0.001, 0.9, 0.9, 0.9, 0.9
         equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions, xsi, psi, costs_energy_final,
                                              psi_energy, psi_non_energy, Omega, costs_energy, Omega_energy, Omega_non_energy,
                                              Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
