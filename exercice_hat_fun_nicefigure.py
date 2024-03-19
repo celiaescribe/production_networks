@@ -234,11 +234,12 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
         price_intermediate_non_energy = price_intermediate_non_energy.sum(axis=1)**(1/(1-epsilon))
 
     # Intermediate price shared by all sectors, between energy and non-energy nest
+    # we only select one of the columns of costs_energy as they are all the same (for energy sectors on one hand, for non-energy sectors on the other hand)
     if nu == 1:
-        price_intermediate = (costs_energy['energy'] * np.log(price_intermediate_energy) + costs_energy['non_energy'] * np.log(price_intermediate_non_energy))
+        price_intermediate = (costs_energy.loc[:, costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * np.log(price_intermediate_energy) + costs_energy.loc[:, ~costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * np.log(price_intermediate_non_energy))
         price_intermediate = np.exp(price_intermediate)
     else:
-        price_intermediate = (costs_energy['energy'] * price_intermediate_energy**(1-nu) + costs_energy['non_energy'] * price_intermediate_non_energy**(1-nu))**(1/(1-nu))
+        price_intermediate = (costs_energy.loc[:, costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * price_intermediate_energy**(1-nu) + costs_energy.loc[:, ~costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * price_intermediate_non_energy**(1-nu))**(1/(1-nu))
 
     price_intermediate_energy = pd.concat([price_intermediate_energy]*len(ENERGY_SECTORS), axis=1)  # this price is shared by all energy sectors
     price_intermediate_energy.columns = ENERGY_SECTORS
@@ -321,7 +322,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
         pass
     else:
         aeff = a_efficiency.loc[ENERGY_SECTORS].mean()  # we assume that all energy sectors have the same shock of efficiency
-        price_index = (costs_energy_final.loc['energy'] * (price_index_energy / aeff)**(1-kappa) + costs_energy_final.loc['non_energy'] * price_index_non_energy**(1-kappa))**(1/(1-kappa))
+        price_index = (costs_energy_final.loc[costs_energy_final.index.isin(ENERGY_SECTORS),:].iloc[0,:] * (price_index_energy / aeff)**(1-kappa) + costs_energy_final.loc[~costs_energy_final.index.isin(ENERGY_SECTORS),:].iloc[0,:] * price_index_non_energy**(1-kappa))**(1/(1-kappa))
 
     # TODO: change name of this index which is really not intuitive: price_index_sector to indicate it is at sector level
     price_index_energy = pd.concat([price_index_energy.to_frame().T]*len(ENERGY_SECTORS), axis=0)  # this price is shared by all energy sectors
@@ -397,6 +398,14 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     budget_shares_hat = final_demand_aggregator * price_imports_finaldemand / (PSigmaY*price_index)
     budget_shares_new = budget_shares_hat * psi  # new budget shares, compiled from the hat and the initial version
     variation_welfare = np.log(PSigmaY * price_index) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
+
+    budget_shares = xsi * pd.concat([psi_energy, psi_non_energy], axis=0) * costs_energy_final  # initial budget shares for each of the sectors
+    expenditure_share_variation = final_demand.mul(pi_hat, axis=0)
+    tornqvist_price_index = np.exp((budget_shares * (1+expenditure_share_variation) / 2).mul(np.log(pi_hat), axis=0).sum(axis=0))
+    sato_vartia_price_index = (-budget_shares * (1 - expenditure_share_variation) / np.log(expenditure_share_variation)).where(expenditure_share_variation != 1, other=budget_shares)  # when expenditure did not change, the value is the initial budget share
+    sato_vartia_price_index = sato_vartia_price_index / sato_vartia_price_index.sum(axis=0)  # we use the formula from the foundational paper from Sato and Vartia (1976)
+    sato_vartia_price_index = np.exp(sato_vartia_price_index.mul(np.log(pi_hat), axis=0).sum(axis=0))  # we again calculate the log price index
+
     #
     output = {
         'pi_hat': pi_hat,
@@ -406,6 +415,8 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
         'ki_hat': ki_hat,
         'PSigmaY': PSigmaY,
         'price_index': price_index,
+        'tornqvist_price_index': tornqvist_price_index,
+        'sato_vartia_price_index': sato_vartia_price_index,
         'GDP': PSigmaY * price_index,
         'domestic_domar': pi_hat * yi_hat / (PSigmaY * price_index),
         'domar': pi_hat * yi_hat,
@@ -477,6 +488,12 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions,
     initial_guess = np.zeros(2 * N + 4)
     sol, output_single = context_single.solve_equilibrium(initial_guess, method='krylov')
 
+    output_dict = {
+        'CD': output_CD,
+        'ref': output_ref,
+        'single': output_single
+    }
+
     pi_hat = pd.concat([output_CD['pi_hat'].to_frame(name='price_CD_hat'), output_ref['pi_hat'].to_frame(name='price_hat'), output_single['pi_hat'].to_frame(name='price_single_hat')], axis=1)
     yi_hat = pd.concat([output_CD['yi_hat'].to_frame(name='quantity_CD_hat'), output_ref['yi_hat'].to_frame(name='quantity_hat'), output_single['yi_hat'].to_frame(name='quantity_single_hat')], axis=1)
     final_demand = pd.concat([output_CD['final_demand'].rename(columns={col: f'{col}_CD' for col in output_CD['final_demand'].columns}), output_ref['final_demand'].rename(columns={col: f'{col}' for col in output_ref['final_demand'].columns}),
@@ -492,17 +509,20 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions,
     domar_tot = pd.concat([domestic_domar, domar, domestic_factor_labor_domar, factor_labor_domar, domestic_factor_capital_domar, factor_capital_domar], axis=1)
     real_GDP = pd.concat([output_CD['PSigmaY'].rename({i: f'real_GDP_{i}_CD' for i in output_CD['PSigmaY'].index}), output_ref['PSigmaY'].rename({i: f'real_GDP_{i}_ref' for i in output_ref['PSigmaY'].index}), output_single['PSigmaY'].rename({i: f'real_GDP_{i}_single' for i in output_single['PSigmaY'].index})])
     GDP = pd.concat([output_CD['GDP'].rename({i: f'GDP_{i}_CD' for i in output_CD['GDP'].index}), output_ref['GDP'].rename({i: f'GDP_{i}_ref' for i in output_ref['GDP'].index}), output_single['GDP'].rename({i: f'GDP_{i}_single' for i in output_single['GDP'].index})])
-    price_index = pd.concat([output_CD['price_index'].rename({i: f'price_index_{i}_CD' for i in output_CD['price_index'].index}),
-                          output_ref['price_index'].rename({i: f'price_index_{i}_ref' for i in output_ref['price_index'].index}),
-                          output_single['price_index'].rename({i: f'price_index_{i}_single' for i in output_single['price_index'].index})])
+    # price_index = pd.concat([output_CD['price_index'].rename({i: f'price_index_{i}_CD' for i in output_CD['price_index'].index}),
+    #                       output_ref['price_index'].rename({i: f'price_index_{i}_ref' for i in output_ref['price_index'].index}),
+    #                       output_single['price_index'].rename({i: f'price_index_{i}_single' for i in output_single['price_index'].index})])
+    price_list = ['price_index', 'tornqvist_price_index', 'sato_vartia_price_index']
+    concatenated_price_info = {
+        item: pd.concat(
+            [df[item].rename(lambda i: f"{item}_{i}_{suffix}")
+             for suffix, df in output_dict.items()]
+        ) for item in price_list
+    }
+    price_index = pd.concat([concatenated_price_info[key] for key in concatenated_price_info.keys()], axis=0)
     variation_welfare = pd.concat([output_CD['variation_welfare'].rename({i: f'variation_welfare_{i}_CD' for i in output_CD['variation_welfare'].index}), output_ref['variation_welfare'].rename({i: f'variation_welfare_{i}_ref' for i in output_ref['variation_welfare'].index}), output_single['variation_welfare'].rename({i: f'variation_welfare_{i}_single' for i in output_single['variation_welfare'].index})])
     global_variables = pd.concat([GDP, real_GDP, price_index, variation_welfare], axis=0)
 
-    output_dict = {
-        'CD': output_CD,
-        'ref': output_ref,
-        'single': output_single
-    }
     emissions_hat = variation_emission(output_dict, emissions, sectors_dirty_energy, final_use_dirty_energy)
 
     equilibrium_output = EquilibriumOutput(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar_tot, emissions_hat, global_variables, descriptions)
