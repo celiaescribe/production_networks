@@ -236,10 +236,12 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     # Intermediate price shared by all sectors, between energy and non-energy nest
     # we only select one of the columns of costs_energy as they are all the same (for energy sectors on one hand, for non-energy sectors on the other hand)
     if nu == 1:
-        price_intermediate = (costs_energy.loc[:, costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * np.log(price_intermediate_energy) + costs_energy.loc[:, ~costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * np.log(price_intermediate_non_energy))
+        # price_intermediate = (costs_energy.loc[:, costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * np.log(price_intermediate_energy) + costs_energy.loc[:, ~costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * np.log(price_intermediate_non_energy))
+        price_intermediate = (costs_energy['Energy'] * np.log(price_intermediate_energy) + costs_energy['Non-Energy'] * np.log(price_intermediate_non_energy))
         price_intermediate = np.exp(price_intermediate)
     else:
-        price_intermediate = (costs_energy.loc[:, costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * price_intermediate_energy**(1-nu) + costs_energy.loc[:, ~costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * price_intermediate_non_energy**(1-nu))**(1/(1-nu))
+        # price_intermediate = (costs_energy.loc[:, costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * price_intermediate_energy**(1-nu) + costs_energy.loc[:, ~costs_energy.columns.isin(ENERGY_SECTORS)].iloc[:,0] * price_intermediate_non_energy**(1-nu))**(1/(1-nu))
+        price_intermediate = (costs_energy['Energy'] * price_intermediate_energy**(1-nu) + costs_energy['Non-Energy'] * price_intermediate_non_energy**(1-nu))**(1/(1-nu))
 
     price_intermediate_energy = pd.concat([price_intermediate_energy]*len(ENERGY_SECTORS), axis=1)  # this price is shared by all energy sectors
     price_intermediate_energy.columns = ENERGY_SECTORS
@@ -322,14 +324,15 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
         pass
     else:
         aeff = a_efficiency.loc[ENERGY_SECTORS].mean()  # we assume that all energy sectors have the same shock of efficiency
-        price_index = (costs_energy_final.loc[costs_energy_final.index.isin(ENERGY_SECTORS),:].iloc[0,:] * (price_index_energy / aeff)**(1-kappa) + costs_energy_final.loc[~costs_energy_final.index.isin(ENERGY_SECTORS),:].iloc[0,:] * price_index_non_energy**(1-kappa))**(1/(1-kappa))
+        # price_index = (costs_energy_final.loc[costs_energy_final.index.isin(ENERGY_SECTORS),:].iloc[0,:] * (price_index_energy / aeff)**(1-kappa) + costs_energy_final.loc[~costs_energy_final.index.isin(ENERGY_SECTORS),:].iloc[0,:] * price_index_non_energy**(1-kappa))**(1/(1-kappa))
+        price_index = (costs_energy_final.loc['Energy'] * (price_index_energy / aeff)**(1-kappa) + costs_energy_final.loc['Non-Energy'] * price_index_non_energy**(1-kappa))**(1/(1-kappa))
 
     # TODO: change name of this index which is really not intuitive: price_index_sector to indicate it is at sector level
-    price_index_energy = pd.concat([price_index_energy.to_frame().T]*len(ENERGY_SECTORS), axis=0)  # this price is shared by all energy sectors
-    price_index_energy.index = ENERGY_SECTORS
-    price_index_non_energy = pd.concat([price_index_non_energy.to_frame().T]*len(psi_non_energy.index ), axis=0)  # this price is shared by all non-energy sectors
-    price_index_non_energy.index = psi_non_energy.index
-    price_index_energy_overall = pd.concat([price_index_energy, price_index_non_energy], axis=0)  # we create a price vector for all sectors
+    tmp_energy = pd.concat([price_index_energy.to_frame().T]*len(ENERGY_SECTORS), axis=0)  # this price is shared by all energy sectors
+    tmp_energy.index = ENERGY_SECTORS
+    tmp_non_energy = pd.concat([price_index_non_energy.to_frame().T]*len(psi_non_energy.index ), axis=0)  # this price is shared by all non-energy sectors
+    tmp_non_energy.index = psi_non_energy.index
+    price_index_energy_overall = pd.concat([tmp_energy, tmp_non_energy], axis=0)  # we create a price vector for all sectors
     price_index_energy_overall.index.name = 'Sector'
 
     # Final demand
@@ -399,12 +402,21 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     budget_shares_new = budget_shares_hat * psi  # new budget shares, compiled from the hat and the initial version
     variation_welfare = np.log(PSigmaY * price_index) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
 
-    budget_shares = xsi * pd.concat([psi_energy, psi_non_energy], axis=0) * costs_energy_final  # initial budget shares for each of the sectors
+    costs_energy_final_concat = pd.DataFrame({sector: costs_energy_final.loc['Energy' if sector in ENERGY_SECTORS else 'Non-Energy'] for sector in xsi.index.get_level_values('Sector').unique()}).T
+    costs_energy_final_concat.index.name = 'Sector'
+    budget_shares = xsi * pd.concat([psi_energy, psi_non_energy], axis=0) * costs_energy_final_concat  # initial budget shares for each of the sectors, where we create a new budget share for energy shared across sectors
     expenditure_share_variation = final_demand.mul(pi_hat, axis=0) / (PSigmaY*price_index)
     tornqvist_price_index = np.exp((budget_shares * (1+expenditure_share_variation) / 2).mul(np.log(pi_hat), axis=0).sum(axis=0))
     sato_vartia_price_index = (-budget_shares * (1 - expenditure_share_variation) / np.log(expenditure_share_variation)).where(expenditure_share_variation != 1, other=budget_shares)  # when expenditure did not change, the value is the initial budget share
     sato_vartia_price_index = sato_vartia_price_index / sato_vartia_price_index.sum(axis=0)  # we use the formula from the foundational paper from Sato and Vartia (1976)
     sato_vartia_price_index = np.exp(sato_vartia_price_index.mul(np.log(pi_hat), axis=0).sum(axis=0))  # we again calculate the log price index
+
+    final_demand_aggregator = ((xsi * final_demand ** ((mu - 1) / mu)).groupby('Sector').sum()) ** (mu / (mu - 1))
+    final_demand_aggregator = (pd.concat([psi_energy, psi_non_energy], axis=0) * final_demand_aggregator ** ((sigma-1) / sigma)).groupby(lambda x: 'Energy' if x in ENERGY_SECTORS else 'Non-Energy').sum() ** (sigma / (sigma - 1))
+    # budget_shares_new_agg = costs_energy_final.loc[['Coal', 'Arts'],:]  # we select the initial budget share devoted to energy versus non energy, for the household (as we only repeated the values multiple times, we can select one of the rows for energy and non-energy
+    # budget_shares_new_agg = budget_shares_new_agg.rename(index={'Coal': 'Energy', 'Arts': 'Non-Energy'})
+    budget_shares_new_agg = costs_energy_final * final_demand_aggregator / (PSigmaY*price_index)  # estimate new budget shares, based on hat values and initial budget shares
+    lloyd_moulton_price_index = (((budget_shares_new_agg * (pd.concat([price_index_energy.rename('Energy'), price_index_non_energy.rename('Non-Energy')], axis=1).T)**(kappa-1)).sum(axis=0))**(1/(1-kappa)))**(-1)
 
     #
     output = {
@@ -417,6 +429,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
         'price_index': price_index,
         'tornqvist_price_index': tornqvist_price_index,
         'sato_vartia_price_index': sato_vartia_price_index,
+        'lloyd_moulton_price_index': lloyd_moulton_price_index,
         'GDP': PSigmaY * price_index,
         'domestic_domar': pi_hat * yi_hat / (PSigmaY * price_index),
         'domar': pi_hat * yi_hat,
@@ -512,7 +525,7 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions,
     # price_index = pd.concat([output_CD['price_index'].rename({i: f'price_index_{i}_CD' for i in output_CD['price_index'].index}),
     #                       output_ref['price_index'].rename({i: f'price_index_{i}_ref' for i in output_ref['price_index'].index}),
     #                       output_single['price_index'].rename({i: f'price_index_{i}_single' for i in output_single['price_index'].index})])
-    price_list = ['price_index', 'tornqvist_price_index', 'sato_vartia_price_index']
+    price_list = ['price_index', 'tornqvist_price_index', 'sato_vartia_price_index', 'lloyd_moulton_price_index']
     concatenated_price_info = {
         item: pd.concat(
             [df[item].rename(lambda i: f"{item}_{i}_{suffix}")
