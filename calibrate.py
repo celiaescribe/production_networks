@@ -117,7 +117,9 @@ class CalibOutput:
             psi_energy.index.names = ["Sector"]
             psi_non_energy = pd.read_excel(xls, sheet_name="psi_non_energy", index_col=0).drop(columns="long_description")
             psi_non_energy.index.names = ["Sector"]
-            costs_energy_final = pd.read_excel(xls, sheet_name="costs_energy_final", index_col=0)
+            # costs_energy_final = pd.read_excel(xls, sheet_name="costs_energy_final", index_col=0)
+            costs_energy_final = pd.read_excel(xls, sheet_name="costs_energy_final", index_col=0).drop(columns="long_description")
+            costs_energy_final.index.names = ["Sector"]
             psi_durable = pd.read_excel(xls, sheet_name="psi_durable", index_col=0).drop(columns="long_description")
             psi_durable.index.names = ["Sector"]
             psi_non_durable = pd.read_excel(xls, sheet_name="psi_non_durable", index_col=0).drop(columns="long_description")
@@ -307,9 +309,15 @@ def get_main_stats(df, final_use):
     Omega_non_energy = df.loc[:,~df.columns.get_level_values('Sector').isin(ENERGY_SECTORS)]  # share of non-energy sector in non-energy nest
     Omega_non_energy = Omega_non_energy.groupby(level='Sector', axis=1).sum().div(Omega_non_energy.sum(axis=1), axis=0)
 
-    costs_energy = df.loc[:,df.columns.get_level_values('Sector').isin(ENERGY_SECTORS)].sum(axis=1).div(sectors['pmXi'], axis=0)
-    costs_energy = costs_energy.to_frame(name='energy')
-    costs_energy['non_energy'] = 1 - costs_energy['energy']
+    costs_energy = df.loc[:,df.columns.get_level_values('Sector').isin(ENERGY_SECTORS)].sum(axis=1).div(sectors['pmXi'], axis=0)  # share of costs going to energy sectors for each sector over total costs
+    costs_non_energy = 1 - costs_energy
+    costs_energy = pd.concat([costs_energy]*len(ENERGY_SECTORS), axis=1)
+    costs_energy.columns = ENERGY_SECTORS
+    number_non_energy_sectors = len(Gamma.index.get_level_values('Sector').unique()) - len(ENERGY_SECTORS)
+    costs_non_energy = pd.concat([costs_non_energy]*number_non_energy_sectors, axis=1)
+    costs_non_energy.columns = [x for x in Gamma.index.get_level_values('Sector').unique() if x not in ENERGY_SECTORS]
+    costs_energy = pd.concat([costs_energy, costs_non_energy], axis=1)
+    costs_energy.columns.name = 'Sector'
 
     # share of intermediate consumption in dirty energy sectors
     sectors_dirty_energy = df.loc[:, df.columns.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS)]
@@ -329,10 +337,14 @@ def get_main_stats(df, final_use):
     psi_non_energy = final_use.loc[~final_use.index.get_level_values('Sector').isin(ENERGY_SECTORS),:]  # share of non-energy sector in non-energy nest
     psi_non_energy = psi_non_energy.groupby(level='Sector', axis=0).sum().div(psi_non_energy.sum(axis=0))
 
-    costs_energy_final = final_use.loc[final_use.index.get_level_values('Sector').isin(ENERGY_SECTORS),:].sum(axis=0) / final_use.sum(axis=0)
-    costs_energy_final = costs_energy_final.to_frame(name='energy')
-    costs_energy_final['non_energy'] = 1 - costs_energy_final['energy']
-    costs_energy_final = costs_energy_final.T  # we transpose to have the same shape as psi
+    costs_energy_final = final_use.loc[final_use.index.get_level_values('Sector').isin(ENERGY_SECTORS),:].sum(axis=0) / final_use.sum(axis=0)  # share of final demand going to energy sectors
+    costs_non_energy_final = 1 - costs_energy_final
+    costs_energy_final = pd.concat([costs_energy_final.to_frame().T]*len(ENERGY_SECTORS), axis=0)
+    costs_energy_final.index = ENERGY_SECTORS
+    costs_non_energy_final = pd.concat([costs_non_energy_final.to_frame().T]*number_non_energy_sectors, axis=0)
+    costs_non_energy_final.index = [x for x in Gamma.index.get_level_values('Sector').unique() if x not in ENERGY_SECTORS]
+    costs_energy_final = pd.concat([costs_energy_final, costs_non_energy_final], axis=0)
+    costs_energy_final.index.name = 'Sector'
 
     psi_durable = final_use.loc[final_use.index.get_level_values('Sector').isin(DURABLE_GOODS),:]  # share of durable sectors in durable nest
     psi_durable = psi_durable.groupby(level='Sector', axis=0).sum().div(psi_durable.sum(axis=0))
