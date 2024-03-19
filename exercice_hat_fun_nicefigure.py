@@ -400,7 +400,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     variation_welfare = np.log(PSigmaY * price_index) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
 
     budget_shares = xsi * pd.concat([psi_energy, psi_non_energy], axis=0) * costs_energy_final  # initial budget shares for each of the sectors
-    expenditure_share_variation = final_demand.mul(pi_hat, axis=0)
+    expenditure_share_variation = final_demand.mul(pi_hat, axis=0) / (PSigmaY*price_index)
     tornqvist_price_index = np.exp((budget_shares * (1+expenditure_share_variation) / 2).mul(np.log(pi_hat), axis=0).sum(axis=0))
     sato_vartia_price_index = (-budget_shares * (1 - expenditure_share_variation) / np.log(expenditure_share_variation)).where(expenditure_share_variation != 1, other=budget_shares)  # when expenditure did not change, the value is the initial budget share
     sato_vartia_price_index = sato_vartia_price_index / sato_vartia_price_index.sum(axis=0)  # we use the formula from the foundational paper from Sato and Vartia (1976)
