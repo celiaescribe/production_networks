@@ -38,6 +38,7 @@ class CalibOutput:
     costs_durable_final: pd.DataFrame
     psi_durable: pd.DataFrame
     psi_non_durable: pd.DataFrame
+    costs_energy_services_final: pd.DataFrame
     Omega: pd.DataFrame
     costs_energy: pd.DataFrame
     Omega_energy: pd.DataFrame
@@ -64,6 +65,7 @@ class CalibOutput:
                 (self.costs_durable_final, "costs_durable_final"),
                 (self.psi_durable, "psi_durable"),
                 (self.psi_non_durable, "psi_non_durable"),
+                (self.costs_energy_services_final, "costs_energy_services_final"),
                 (self.Omega, "Omega"),
                 (self.costs_energy, "costs_energy"),
                 (self.Omega_energy, "Omega_energy"),
@@ -118,13 +120,12 @@ class CalibOutput:
             psi_non_energy = pd.read_excel(xls, sheet_name="psi_non_energy", index_col=0).drop(columns="long_description")
             psi_non_energy.index.names = ["Sector"]
             costs_energy_final = pd.read_excel(xls, sheet_name="costs_energy_final", index_col=0)
-            # costs_energy_final = pd.read_excel(xls, sheet_name="costs_energy_final", index_col=0).drop(columns="long_description")
-            # costs_energy_final.index.names = ["Sector"]
             psi_durable = pd.read_excel(xls, sheet_name="psi_durable", index_col=0).drop(columns="long_description")
             psi_durable.index.names = ["Sector"]
             psi_non_durable = pd.read_excel(xls, sheet_name="psi_non_durable", index_col=0).drop(columns="long_description")
             psi_non_durable.index.names = ["Sector"]
             costs_durable_final = pd.read_excel(xls, sheet_name="costs_durable_final", index_col=0)
+            costs_energy_services_final = pd.read_excel(xls, sheet_name="costs_energy_services_final", index_col=0)
             Omega = unflatten_index_in_df(
                 pd.read_excel(xls, sheet_name="Omega", index_col=0)
                 .drop(columns="long_description"),
@@ -175,7 +176,7 @@ class CalibOutput:
             descriptions.index.name = "Sector"
             descriptions.name = 0
         return cls(sectors, emissions, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable,
-                   psi_non_durable, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy,
+                   psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy,
                    final_use_dirty_energy, descriptions)
 
     def equals(self, other):
@@ -187,6 +188,10 @@ class CalibOutput:
                 and same_df(self.costs_energy_final, other.costs_energy_final)
                 and same_df(self.psi_energy, other.psi_energy)
                 and same_df(self.psi_non_energy, other.psi_non_energy)
+                and same_df(self.costs_durable_final, other.costs_durable_final)
+                and same_df(self.psi_durable, other.psi_durable)
+                and same_df(self.psi_non_durable, other.psi_non_durable)
+                and same_df(self.costs_energy_services_final, other.costs_energy_services_final)
                 and same_df(self.Omega, other.Omega)
                 and same_df(self.costs_energy, other.costs_energy)
                 and same_df(self.Omega_energy, other.Omega_energy)
@@ -333,39 +338,38 @@ def get_main_stats(df, final_use):
     # assert that the sum of Domestic, grouped by Sector  is equal to 1
     assert np.allclose(Domestic.groupby(level='Sector', axis=1).sum(), 1)
 
+    # Calibration for energy nests
     psi = final_use.groupby('Sector').sum()  # sum of all final use
     psi = psi / psi.sum(axis=0)  # share of sector in final demand
     psi = psi.loc[original_order]
+
     psi_energy = final_use.loc[final_use.index.get_level_values('Sector').isin(ENERGY_SECTORS),:]  # share of energy sector in energy nest
     psi_energy = psi_energy.groupby(level='Sector', axis=0).sum().div(psi_energy.sum(axis=0))
     psi_non_energy = final_use.loc[~final_use.index.get_level_values('Sector').isin(ENERGY_SECTORS),:]  # share of non-energy sector in non-energy nest
     psi_non_energy = psi_non_energy.groupby(level='Sector', axis=0).sum().div(psi_non_energy.sum(axis=0))
-
-    # costs_energy_final = final_use.loc[final_use.index.get_level_values('Sector').isin(ENERGY_SECTORS),:].sum(axis=0) / final_use.sum(axis=0)  # share of final demand going to energy sectors
-    # costs_non_energy_final = 1 - costs_energy_final
-    # costs_energy_final = pd.concat([costs_energy_final.to_frame().T]*len(ENERGY_SECTORS), axis=0)
-    # costs_energy_final.index = ENERGY_SECTORS
-    # costs_non_energy_final = pd.concat([costs_non_energy_final.to_frame().T]*number_non_energy_sectors, axis=0)
-    # costs_non_energy_final.index = [x for x in Gamma.index.get_level_values('Sector').unique() if x not in ENERGY_SECTORS]
-    # costs_energy_final = pd.concat([costs_energy_final, costs_non_energy_final], axis=0)
-    # costs_energy_final.index.name = 'Sector'
 
     costs_energy_final = final_use.loc[final_use.index.get_level_values('Sector').isin(ENERGY_SECTORS),:].sum(axis=0) / final_use.sum(axis=0)
     costs_energy_final = costs_energy_final.to_frame(name='Energy')
     costs_energy_final['Non-Energy'] = 1 - costs_energy_final['Energy']
     costs_energy_final = costs_energy_final.T  # we transpose to have the same shape as psi
 
-
+    # Calibration for durable goods
     psi_durable = final_use.loc[final_use.index.get_level_values('Sector').isin(DURABLE_GOODS),:]  # share of durable sectors in durable nest
     psi_durable = psi_durable.groupby(level='Sector', axis=0).sum().div(psi_durable.sum(axis=0))
 
     psi_non_durable = final_use.loc[final_use.index.get_level_values('Sector').isin(NON_DURABLE_GOODS),:]  # share of non durable sectors in non durable nest
     psi_non_durable = psi_non_durable.groupby(level='Sector', axis=0).sum().div(psi_non_durable.sum(axis=0))
 
-    costs_durable_final = final_use.loc[final_use.index.get_level_values('Sector').isin(NON_DURABLE_GOODS),:].sum(axis=0) / final_use.sum(axis=0)
-    costs_durable_final = costs_durable_final.to_frame(name='non_durable')
-    costs_durable_final['energy_services'] = 1 - costs_durable_final['non_durable']
+    costs_durable_final = final_use.loc[final_use.index.get_level_values('Sector').isin(NON_DURABLE_GOODS),:].sum(axis=0) / final_use.sum(axis=0)  # budget share of non-durable goods
+    costs_durable_final = costs_durable_final.to_frame(name='Non-Durable')
+    costs_durable_final['Energy-Services'] = 1 - costs_durable_final['Non-Durable']  # budget share of energy services
     costs_durable_final = costs_durable_final.T  # we transpose to have the same shape as psi
+
+    costs_energy_services_final = final_use.loc[~final_use.index.get_level_values('Sector').isin(NON_DURABLE_GOODS),:]
+    costs_energy_services_final = costs_energy_services_final.loc[costs_energy_services_final.index.get_level_values('Sector').isin(ENERGY_SECTORS),:].sum(axis=0) / costs_energy_services_final.sum()
+    costs_energy_services_final = costs_energy_services_final.to_frame(name='Energy')
+    costs_energy_services_final['Durable'] = 1 - costs_energy_services_final['Energy']  # budget share of energy services
+    costs_energy_services_final = costs_energy_services_final.T  # we transpose to have the same shape as psi
 
     xsi = final_use.div(final_use.groupby('Sector').sum())  # share of each variety in the nest for final demand
 
@@ -412,7 +416,7 @@ def get_main_stats(df, final_use):
 
     domestic_domar_weights = sectors['pyi'] / sectors['va'].groupby('Country').sum()
     sectors['domestic_domar_weights'] = domestic_domar_weights
-    return sectors, Gamma, Leontieff, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy
+    return sectors, Gamma, Leontieff, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy
 
 
 def networks_stats(Gamma, col_final_use, total_output):
@@ -456,8 +460,8 @@ if __name__ == '__main__':
 
     emissions_total = process_emissions(file_path_emissions_Z, file_path_emissions_Y)
 
-    sectors, Gamma, Leontieff, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy = get_main_stats(df, final_use)
-    calib = CalibOutput(sectors, emissions_total, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
+    sectors, Gamma, Leontieff, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy = get_main_stats(df, final_use)
+    calib = CalibOutput(sectors, emissions_total, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
     calib.to_excel(f"outputs/calib_{country}.xlsx")
     calib2 = CalibOutput.from_excel(f"outputs/calib_{country}.xlsx")
     assert calib.equals(calib2)
