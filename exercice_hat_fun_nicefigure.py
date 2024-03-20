@@ -295,8 +295,8 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     if sigma == 1:
         pass
     else:
-        price_index_energy = betai_hat.loc[betai_hat.index.isin(ENERGY_SECTORS), :] * psi_energy * (price_imports_finaldemand.loc[price_imports_finaldemand.index.isin(ENERGY_SECTORS), :])**(1-epsilon)
-        price_index_energy = price_index_energy.sum(axis=0)**(1/(1-epsilon))
+        price_index_energy = betai_hat.loc[betai_hat.index.isin(ENERGY_SECTORS), :] * psi_energy * (price_imports_finaldemand.loc[price_imports_finaldemand.index.isin(ENERGY_SECTORS), :])**(1-sigma)
+        price_index_energy = price_index_energy.sum(axis=0)**(1/(1-sigma))
 
     # Price for intermediate non-energy sectors goods in final demand
     if sigma == 1:
@@ -402,7 +402,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     budget_shares_new = budget_shares_hat * psi  # new budget shares, compiled from the hat and the initial version
     variation_welfare = np.log(PSigmaY * price_index) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
 
-    costs_energy_final_concat = pd.DataFrame({sector: costs_energy_final.loc['Energy' if sector in ENERGY_SECTORS else 'Non-Energy'] for sector in xsi.index.get_level_values('Sector').unique()}).T
+    costs_energy_final_concat = pd.DataFrame({sector: costs_energy_final.loc['Energy' if sector in ENERGY_SECTORS else 'Non-Energy'] for sector in xsi.index.get_level_values('Sector').unique()}).T  # we create an concatenated version of costs_energy_final
     costs_energy_final_concat.index.name = 'Sector'
     budget_shares = xsi * pd.concat([psi_energy, psi_non_energy], axis=0) * costs_energy_final_concat  # initial budget shares for each of the sectors, where we create a new budget share for energy shared across sectors
     expenditure_share_variation = final_demand.mul(pi_hat, axis=0) / (PSigmaY*price_index)
@@ -412,11 +412,11 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     sato_vartia_price_index = np.exp(sato_vartia_price_index.mul(np.log(pi_hat), axis=0).sum(axis=0))  # we again calculate the log price index
 
     final_demand_aggregator = ((xsi * final_demand ** ((mu - 1) / mu)).groupby('Sector').sum()) ** (mu / (mu - 1))
-    final_demand_aggregator = (pd.concat([psi_energy, psi_non_energy], axis=0) * final_demand_aggregator ** ((sigma-1) / sigma)).groupby(lambda x: 'Energy' if x in ENERGY_SECTORS else 'Non-Energy').sum() ** (sigma / (sigma - 1))
+    final_demand_aggregator = (pd.concat([psi_energy, psi_non_energy], axis=0) * betai_hat**(1/sigma) * final_demand_aggregator ** ((sigma-1) / sigma)).groupby(lambda x: 'Energy' if x in ENERGY_SECTORS else 'Non-Energy').sum() ** (sigma / (sigma - 1))
     # budget_shares_new_agg = costs_energy_final.loc[['Coal', 'Arts'],:]  # we select the initial budget share devoted to energy versus non energy, for the household (as we only repeated the values multiple times, we can select one of the rows for energy and non-energy
     # budget_shares_new_agg = budget_shares_new_agg.rename(index={'Coal': 'Energy', 'Arts': 'Non-Energy'})
-    budget_shares_new_agg = costs_energy_final * final_demand_aggregator / (PSigmaY*price_index)  # estimate new budget shares, based on hat values and initial budget shares
-    lloyd_moulton_price_index = (((budget_shares_new_agg * (pd.concat([price_index_energy.rename('Energy'), price_index_non_energy.rename('Non-Energy')], axis=1).T)**(kappa-1)).sum(axis=0))**(1/(1-kappa)))**(-1)
+    budget_shares_new = costs_energy_final * final_demand_aggregator * pd.concat([price_index_energy.rename('Energy'), price_index_non_energy.rename('Non-Energy')], axis=1).T / (PSigmaY*price_index)  # estimate new budget shares, based on hat values and initial budget shares
+    lloyd_moulton_price_index = (((budget_shares_new * (pd.concat([price_index_energy.rename('Energy'), price_index_non_energy.rename('Non-Energy')], axis=1).T)**(kappa-1)).sum(axis=0))**(1/(kappa - 1)))
 
     #
     output = {
@@ -468,7 +468,8 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions,
     singlefactor = 'specific'
 
     logging.info('Solving for Cobb-Douglas')
-    context = OptimizationContext(li_hat, ki_hat, betai_hat, a_efficiency, 0.99, 0.99, 0.99, 0.99, 0.99, 0.99, 0.99,
+    elasticity_cb = 0.97
+    context = OptimizationContext(li_hat, ki_hat, betai_hat, a_efficiency, elasticity_cb, elasticity_cb, elasticity_cb, elasticity_cb, elasticity_cb, elasticity_cb, elasticity_cb,
                                   sectors, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final,
                                   psi_durable, psi_non_durable, Omega, costs_energy,
                                   Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor)
@@ -522,9 +523,6 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions,
     domar_tot = pd.concat([domestic_domar, domar, domestic_factor_labor_domar, factor_labor_domar, domestic_factor_capital_domar, factor_capital_domar], axis=1)
     real_GDP = pd.concat([output_CD['PSigmaY'].rename({i: f'real_GDP_{i}_CD' for i in output_CD['PSigmaY'].index}), output_ref['PSigmaY'].rename({i: f'real_GDP_{i}_ref' for i in output_ref['PSigmaY'].index}), output_single['PSigmaY'].rename({i: f'real_GDP_{i}_single' for i in output_single['PSigmaY'].index})])
     GDP = pd.concat([output_CD['GDP'].rename({i: f'GDP_{i}_CD' for i in output_CD['GDP'].index}), output_ref['GDP'].rename({i: f'GDP_{i}_ref' for i in output_ref['GDP'].index}), output_single['GDP'].rename({i: f'GDP_{i}_single' for i in output_single['GDP'].index})])
-    # price_index = pd.concat([output_CD['price_index'].rename({i: f'price_index_{i}_CD' for i in output_CD['price_index'].index}),
-    #                       output_ref['price_index'].rename({i: f'price_index_{i}_ref' for i in output_ref['price_index'].index}),
-    #                       output_single['price_index'].rename({i: f'price_index_{i}_single' for i in output_single['price_index'].index})])
     price_list = ['price_index', 'tornqvist_price_index', 'sato_vartia_price_index', 'lloyd_moulton_price_index']
     concatenated_price_info = {
         item: pd.concat(
