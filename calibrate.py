@@ -338,11 +338,11 @@ def get_main_stats(df, final_use):
     # assert that the sum of Domestic, grouped by Sector  is equal to 1
     assert np.allclose(Domestic.groupby(level='Sector', axis=1).sum(), 1)
 
-    # Calibration for energy nests
     psi = final_use.groupby('Sector').sum()  # sum of all final use
     psi = psi / psi.sum(axis=0)  # share of sector in final demand
     psi = psi.loc[original_order]
 
+    # Calibration for energy nests
     psi_energy = final_use.loc[final_use.index.get_level_values('Sector').isin(ENERGY_SECTORS),:]  # share of energy sector in energy nest
     psi_energy = psi_energy.groupby(level='Sector', axis=0).sum().div(psi_energy.sum(axis=0))
     psi_non_energy = final_use.loc[~final_use.index.get_level_values('Sector').isin(ENERGY_SECTORS),:]  # share of non-energy sector in non-energy nest
