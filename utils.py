@@ -58,6 +58,86 @@ def same_df(df1, df2):
     )
 
 
+def parse_outputs(folder, list_sectors, post_processing, reference=None):
+    """List files from a given folder according to conditions, and create a dictionary containing the files and corresponding configuration names. The goal is to automate the process.
+    folder: Path
+        Path to the folder containing the files
+    list_sectors: list
+        List of sectors to be considered
+    post_processing: str
+        Type of post-processing to be considered. It can be 'reference', 'sensitivity_energyservices' or 'sensitivity_energydurable'.
+        If 'reference', the function will look for the file with the reference configuration.
+        If 'sensitivity_energyservices', the function will look for the files with the reference configuration and different values of kappa.
+    reference: dict
+        Reference configuration. Default is None. If None, the reference configuration is {'theta': 0.5, 'sigma': 0.9, 'epsilon': 0.001, 'delta': 0.9, 'mu': 0.9, 'nu': 0.001, 'kappa': 0.5, 'rho': 0.95}
+    """
+    assert post_processing in ['reference', 'sensitivity_energyservices', 'sensitivity_durable']
+    if reference is None:
+        reference = {'theta': 0.5, 'sigma': 0.9, 'epsilon': 0.001, 'delta': 0.9, 'mu': 0.9, 'nu': 0.001, 'kappa': 0.5, 'rho': 0.95}
+    d = {}
+    # list files inside folder
+    for path in folder.iterdir():
+        if path.is_file() and path.suffix == '.xlsx':
+            config = path.name.split('.xlsx')[0].split('_')
+            domestic_country = config[0]
+            sector = config[1]
+            for key in config[2:]:  # we get the different parameters from the configuration
+                if 'theta' in key:
+                    theta = float(key.split('theta')[1])
+                if 'sigma' in key:
+                    sigma = float(key.split('sigma')[1])
+                if 'epsilon' in key:
+                    epsilon = float(key.split('epsilon')[1])
+                if 'delta' in key:
+                    delta = float(key.split('delta')[1])
+                if 'mu' in key:
+                    mu = float(key.split('mu')[1])
+                if 'nu' in key:
+                    nu = float(key.split('nu')[1])
+                if 'kappa' in key:
+                    kappa = float(key.split('kappa')[1])
+                if 'rho' in key:
+                    rho = float(key.split('rho')[1])
+            current_values = {
+                'theta': theta,
+                'sigma': sigma,
+                'epsilon': epsilon,
+                'delta': delta,
+                'mu': mu,
+                'nu': nu,
+                'kappa': kappa,
+                'rho': rho
+            }
+
+            if post_processing == 'reference':
+                if all(reference[key] == current_values[key] for key in reference):
+                    if sector in list_sectors:
+                        d[sector] = path
+            elif post_processing == 'sensitivity_energyservices':
+                # Check if all parameters except kappa match their reference values
+                if all(reference[key] == current_values[key] for key in reference if key != 'kappa'):
+                    if kappa < 0.2:
+                        kappa_name = 'Low'
+                    elif kappa < 0.9:
+                        kappa_name = 'Ref'
+                    else:
+                        kappa_name = 'High'
+                    if sector in list_sectors:
+                        d[f'{sector} - {kappa_name}'] = path
+
+            elif post_processing == 'sensitivity_durable':
+                # Check if all parameters except kappa match their reference values
+                if all(reference[key] == current_values[key] for key in reference if key != 'rho'):
+                    if rho < 0.2:
+                        rho_name = 'Low'
+                    elif rho < 0.9:
+                        rho_name = 'Ref'
+                    else:
+                        rho_name = 'High'
+                    if sector in list_sectors:
+                        d[f'{sector} - {rho_name}'] = path
+    return d
+
 def plot_domestic_emissions(series, country, folder_path, ratio_space=0.1, y_text_offset=0.15, y_label_categories = 0.05,
                    y_label_sector = 0.60, textwidth_heith=200, textwidth_width=202):
     """
@@ -234,7 +314,7 @@ def save_fig(fig, save=None, bbox_inches='tight'):
 # Function to create the plot
 def domestic_emissions_barplot(df, save=None, colors=None, figsize=(7, 7), fontsize_annotation=12, labelpad=30,
                                fontsize_big_xlabel=15, fontsize_small_xlabel=13, annot_offset_neg=-15, rotation=0, first_level_index='Sector',
-                               second_level_index='Effect'):
+                               second_level_index='Effect', filesuffix = '.pdf'):
     """
     Plot emissions by sector and category
     --- Parameters ---
@@ -304,8 +384,15 @@ def domestic_emissions_barplot(df, save=None, colors=None, figsize=(7, 7), fonts
 
     if save is not None:
         d = datetime.datetime.now().strftime("%m%d")
-        save = Path(save  + f"_{d}.pdf")
-    save_fig(fig, save=save)
+
+        # Ensure save is a Path object
+        if not isinstance(save, Path):
+            save = Path(save)
+
+        # Append the date to the filename before the extension
+        save_with_date = save.parent / (save.stem + f"_{d}" + filesuffix)
+
+    save_fig(fig, save=save_with_date)
 
 
 def absolute_emissions_barplot(df, sector, save=None, colors=None, figsize=(7, 7), fontsize_annotation=12, labelpad=30,
