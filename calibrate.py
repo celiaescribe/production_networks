@@ -32,6 +32,7 @@ class CalibOutput:
     emissions: pd.DataFrame
     xsi: pd.DataFrame
     psi: pd.DataFrame
+    phi: pd.DataFrame
     costs_energy_final: pd.DataFrame
     psi_energy: pd.DataFrame
     psi_non_energy: pd.DataFrame
@@ -59,6 +60,7 @@ class CalibOutput:
                 (self.emissions, "emissions"),
                 (self.xsi, "xsi"),
                 (self.psi, "psi"),
+                (self.phi, "phi"),
                 (self.costs_energy_final, "costs_energy_final"),
                 (self.psi_energy, "psi_energy"),
                 (self.psi_non_energy, "psi_non_energy"),
@@ -115,6 +117,10 @@ class CalibOutput:
                 axis=0, level_names=["Country", "Sector"])
             psi = pd.read_excel(xls, sheet_name="psi", index_col=0).drop(columns="long_description")
             psi.index.names = ["Sector"]
+            phi = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="phi", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"])
             psi_energy = pd.read_excel(xls, sheet_name="psi_energy", index_col=0).drop(columns="long_description")
             psi_energy.index.names = ["Sector"]
             psi_non_energy = pd.read_excel(xls, sheet_name="psi_non_energy", index_col=0).drop(columns="long_description")
@@ -175,7 +181,8 @@ class CalibOutput:
             descriptions = pd.read_excel(xls, sheet_name="descriptions", index_col=0, header=None).squeeze()
             descriptions.index.name = "Sector"
             descriptions.name = 0
-        return cls(sectors, emissions, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable,
+
+        return cls(sectors, emissions, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable,
                    psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy,
                    final_use_dirty_energy, descriptions)
 
@@ -185,6 +192,7 @@ class CalibOutput:
                 and same_df(self.emissions, other.emissions)
                 and same_df(self.xsi, other.xsi)
                 and same_df(self.psi, other.psi)
+                and same_df(self.phi, other.phi)
                 and same_df(self.costs_energy_final, other.costs_energy_final)
                 and same_df(self.psi_energy, other.psi_energy)
                 and same_df(self.psi_non_energy, other.psi_non_energy)
@@ -204,6 +212,18 @@ class CalibOutput:
                 and same_df(self.final_use_dirty_energy, other.final_use_dirty_energy)
                 and self.descriptions.equals(other.descriptions)
         )
+
+    def add_final_consumer(self, country, share_new_consumer=0.5):
+        """This function doubles the final consumer from the given country, to have two consumers. """
+        for attr in ['xsi', 'psi', 'phi', 'costs_energy_final', 'psi_energy', 'psi_non_energy', 'costs_durable_final', 'psi_durable',
+                     'psi_non_durable', 'costs_energy_services_final', 'final_use_dirty_energy']:
+            df = getattr(self, attr)
+            df = df.assign(new_consumer = df[country])
+            df = df.rename({country: f'{country}1', 'new_consumer': f'{country}2'}, axis=1)
+            if attr == 'phi':  # we have to adjust the share of final demand between the two consumers
+                df[f'{country}2'] = share_new_consumer * df[f'{country}2']
+                df[f'{country}1'] = (1 - share_new_consumer) * df[f'{country}1']
+            setattr(self, attr, df)
 
 
 def process_excel(file_path):
@@ -451,7 +471,7 @@ def networks_stats(Gamma, col_final_use, total_output):
     return result
 
 if __name__ == '__main__':
-    country = 'france'
+    country = 'europe'
     file_path = f'data_deep/{country}_RoW_IO_table_2014.xlsx'
     file_path_emissions_Z = f'data_deep/{country}_RoW_emissions_Z_2014.xlsx'
     file_path_emissions_Y = f'data_deep/{country}_RoW_emissions_Y_2014.xlsx'
@@ -461,7 +481,10 @@ if __name__ == '__main__':
     emissions_total = process_emissions(file_path_emissions_Z, file_path_emissions_Y)
 
     sectors, Gamma, Leontieff, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy = get_main_stats(df, final_use)
-    calib = CalibOutput(sectors, emissions_total, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
+    phi = sectors.loc[:, sectors.columns.str.contains('phi_')]  # share of final consumption in total output
+    phi = phi.rename(columns=lambda x: x.split('_')[1])
+    phi.columns.names = ['Country']
+    calib = CalibOutput(sectors, emissions_total, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
     calib.to_excel(f"outputs/calib_{country}.xlsx")
     calib2 = CalibOutput.from_excel(f"outputs/calib_{country}.xlsx")
     assert calib.equals(calib2)

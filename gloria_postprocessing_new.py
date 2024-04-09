@@ -1,4 +1,4 @@
-## Copyright: Hubert Massoni
+## Copyright: Célia Escribe
 
 import pandas as pd
 import country_converter as coco
@@ -9,6 +9,8 @@ import numpy as np
 import re
 import gc
 from pathlib import Path
+
+# This file performs some postprocessing on the input-output table, the final demand table, the value-added table, and the emissions tables.
 
 
 country_dict = {

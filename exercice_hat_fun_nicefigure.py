@@ -56,7 +56,7 @@ def read_file_shocks(path):
     return shocks
 
 
-def process_shocks(col, shocks, uniform_shock, domestic_country, countries):
+def process_shocks(col, shocks, uniform_shock, domestic_country, countries, new_consumer):
     """Selects the column corresponding to the type of the shock, and processes it to be used in the model.
     In particular, this involves specifying if the shock is specific to domestic country, or is shared across countries.
     uniform_shock: boolean, if True, the shock is shared across countries. If False, the shock is specific to the domestic country.
@@ -65,7 +65,10 @@ def process_shocks(col, shocks, uniform_shock, domestic_country, countries):
     """
     betai_hat = shocks[col]  # get specific shocks
     betai_hat = betai_hat.to_frame()
-    betai_hat = betai_hat.rename(columns={betai_hat.columns[0]: domestic_country})
+    if new_consumer:
+        betai_hat = betai_hat.rename(columns={betai_hat.columns[0]: f'{domestic_country}1'})
+    else:
+        betai_hat = betai_hat.rename(columns={betai_hat.columns[0]: domestic_country})
 
     if uniform_shock:
         # Preferences shocks are shared across countries
@@ -75,6 +78,8 @@ def process_shocks(col, shocks, uniform_shock, domestic_country, countries):
     else:
         # Preferences shocks are specific to domestic country
         betai_hat = betai_hat.reindex(countries, axis=1, fill_value=1.0)
+        if new_consumer:  # we want the second consumer to experience the same preference shocks as the first consumer
+            betai_hat[f'{domestic_country}2'] = betai_hat[f'{domestic_country}1']
 
     betai_hat.index.names = ['Sector']
     betai_hat.columns.names = ['Country']
@@ -83,9 +88,9 @@ def process_shocks(col, shocks, uniform_shock, domestic_country, countries):
 
 class OptimizationContext:
     """Class to solve the equilibrium of the model"""
-    def __init__(self, li_hat,ki_hat, betai_hat, a_efficiency, theta,sigma,epsilon,delta, mu, nu, kappa, rho, sectors, xsi, psi, costs_energy_final, psi_energy,
+    def __init__(self, li_hat,ki_hat, betai_hat, a_efficiency, theta,sigma,epsilon,delta, mu, nu, kappa, rho, sectors, xsi, psi, phi, costs_energy_final, psi_energy,
                  psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy,
-                 Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor):
+                 Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor, new_consumer, share_new_consumer):
         self.li_hat = li_hat
         self.ki_hat = ki_hat
         self.betai_hat = betai_hat
@@ -101,6 +106,7 @@ class OptimizationContext:
         self.sectors = sectors
         self.xsi = xsi
         self.psi = psi
+        self.phi = phi
         self.costs_energy_final = costs_energy_final
         self.psi_energy = psi_energy
         self.psi_non_energy = psi_non_energy
@@ -117,15 +123,17 @@ class OptimizationContext:
         self.share_GNE = share_GNE
         self.domestic_country = domestic_country
         self.singlefactor = singlefactor
+        self.new_consumer = new_consumer
+        self.share_new_consumer = share_new_consumer
 
     def residuals_wrapper(self, lvec):
         # Call the original function but only return the first output
         res, *_ = residuals(lvec, self.li_hat, self.ki_hat, self.betai_hat, self.a_efficiency, self.theta, self.sigma, self.epsilon, self.delta,
-                            self.mu, self.nu, self.kappa, self.rho, self.sectors, self.xsi, self.psi, self.costs_energy_final, self.psi_energy, self.psi_non_energy,
+                            self.mu, self.nu, self.kappa, self.rho, self.sectors, self.xsi, self.psi, self.phi, self.costs_energy_final, self.psi_energy, self.psi_non_energy,
                             self.costs_durable_final, self.psi_durable, self.psi_non_durable, self.costs_energy_services_final, self.Omega, self.costs_energy,
                             self.Omega_energy, self.Omega_non_energy, self.Domestic, self.Delta,
-                            self.share_GNE, singlefactor=self.singlefactor, domestic_country=self.domestic_country)
-        # return (res**2).sum()
+                            self.share_GNE, singlefactor=self.singlefactor, domestic_country=self.domestic_country, new_consumer=self.new_consumer,
+                            share_new_consumer=self.share_new_consumer)
         return res
 
     def solve_equilibrium(self, initial_guess, method='krylov'):
@@ -137,10 +145,11 @@ class OptimizationContext:
         residual = (self.residuals_wrapper(lvec_sol.x) ** 2).sum()
         logging.info(f"Method: {method:10s}, Time: {t_m:5.1f}, Residual: {residual:10.2e}")
         res, output = residuals(lvec_sol.x, self.li_hat, self.ki_hat, self.betai_hat, self.a_efficiency, self.theta, self.sigma, self.epsilon,
-                                self.delta, self.mu, self.nu, self.kappa, self.rho, self.sectors, self.xsi, self.psi, self.costs_energy_final, self.psi_energy, self.psi_non_energy,
+                                self.delta, self.mu, self.nu, self.kappa, self.rho, self.sectors, self.xsi, self.psi, self.phi, self.costs_energy_final, self.psi_energy, self.psi_non_energy,
                                 self.costs_durable_final, self.psi_durable, self.psi_non_durable, self.costs_energy_services_final, self.Omega, self.costs_energy,
                                 self.Omega_energy, self.Omega_non_energy, self.Domestic, self.Delta,
-                                self.share_GNE, singlefactor=self.singlefactor, domestic_country=self.domestic_country)
+                                self.share_GNE, singlefactor=self.singlefactor, domestic_country=self.domestic_country,
+                                new_consumer=self.new_consumer, share_new_consumer=self.share_new_consumer)
         return lvec_sol.x, output
 
 
@@ -219,8 +228,10 @@ class EquilibriumOutput:
             descriptions.name = 0
         return cls(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar, labor_capital, emissions_hat, global_variables, descriptions)
 
-def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsilon, delta, mu, nu, kappa, rho, sectors, xsi, psi, costs_energy_final, psi_energy,
-              psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, singlefactor='specific', domestic_country = 'FRA'):
+def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsilon, delta, mu, nu, kappa, rho, sectors, xsi, psi, phi, costs_energy_final, psi_energy,
+              psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy,
+              Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, singlefactor='specific', domestic_country = 'FRA',
+              new_consumer=False, share_new_consumer=0.5):
     """Function to compute the residuals of the model. Residuals are obtained from FOC from the model. The goal is then to
     minimize this function in order to find its zeros, corresponding to the equilibrium.
     #######
@@ -235,21 +246,25 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     assert singlefactor in ['specific', 'country', 'all'], 'Parameter singlefactor is not correctly specified.'
     N = len(sectors)  # number of sectors times countries
     S = len(psi)  # number of sectors
-    C = xsi.shape[1] # number of countries
+    if new_consumer:  # we have one consumer more than the number of countries
+        C = xsi.shape[1] - 1 # number of countries
+        C_consumer = xsi.shape[1]
+    else:
+        C = xsi.shape[1]
+        C_consumer = C
     vec = np.exp(lvec)
-    # vec = lvec
     pi_hat = vec[:N]
     yi_hat = vec[N:2*N]
     pi_hat = pd.Series(pi_hat, index=sectors.index)
     yi_hat = pd.Series(yi_hat, index=sectors.index)
-    PSigmaY = pd.Series(index=psi.columns, data=vec[2*N:2*N+C])  #
+    PSigmaY = pd.Series(index=psi.columns, data=vec[2*N:2*N+C_consumer])  #
 
     if singlefactor == 'country':  # factors can be freely reallocated inside each country
-        w_country = pd.Series(index=psi.columns, data=vec[2*N+C:2*N+2*C])
-        r_country = pd.Series(index=psi.columns, data=vec[2*N+2*C:2*N+3*C])
+        w_country = pd.Series(index=psi.columns, data=vec[2*N+C_consumer:2*N+C_consumer+C])
+        r_country = pd.Series(index=psi.columns, data=vec[2*N+C_consumer+C:2*N+C_consumer+2*C])
     elif singlefactor == 'all':  # factors can be freely reallocated across the world
-        w_world = vec[2*N+C:2*N+C+1]
-        r_world = vec[2*N+C+1:2*N+C+2]
+        w_world = vec[2*N+C_consumer:2*N+C_consumer+1]
+        r_world = vec[2*N+C_consumer+1:2*N+C_consumer+2]
 
     assert Domestic.index.equals(Domestic.columns), "Domestic index and columns are not the same while they should be"
     # We create a price dataframe with the same dimensions as the Domestic dataframe
@@ -337,16 +352,6 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     price_imports_finaldemand = price_imports_finaldemand.reindex(psi.index, axis=0)  # we reindex to ensure same order for interpretability
     assert price_imports_finaldemand.shape == psi.shape
 
-    # # Price for intermediate sectors goods, final demand (price index)
-    # if sigma == 1:  # careful: this is actually no longer true for this specific subcase (because of the Cobb-Douglas assumption here)
-    #     psi_new = (betai_hat * psi) / (betai_hat * psi).sum()
-    #     price_index = betai_hat * psi * np.log(price_imports_finaldemand)
-    #     price_index = np.exp(price_index.sum(axis=0))
-    # else:
-    #     price_index = betai_hat * psi * price_imports_finaldemand**(1-sigma)
-    #     price_index = (price_index.sum(axis=0))**(1/(1-sigma))  # sum over all sectors
-    # assert price_index.shape == (C,)
-
     # Price for intermediate energy sectors goods in final demand
     if sigma == 1:
         pass
@@ -386,13 +391,6 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     else:
         price_index = (betai_hat['nondurable_energyservices'].loc['Non-Durable'] * costs_durable_final.loc['Non-Durable'] * price_index_non_durable ** (1-rho) + betai_hat['nondurable_energyservices'].loc['Energy-Services'] * costs_durable_final.loc['Energy-Services'] * price_index_energy_services ** (1-rho)) ** (1 / (1-rho))
 
-    # # Intermediate price index between energy and non-energy nest in final demand
-    # if kappa == 1:
-    #     pass
-    # else:
-    #     aeff = a_efficiency.loc[ENERGY_SECTORS].mean()  # we assume that all energy sectors have the same shock of efficiency
-    #     price_index = (costs_energy_final.loc['Energy'] * (price_index_energy / aeff)**(1-kappa) + costs_energy_final.loc['Non-Energy'] * price_index_non_energy**(1-kappa))**(1/(1-kappa))
-
     price_index_energy_concat = pd.DataFrame({sector: price_index_energy if sector in ENERGY_SECTORS else  price_index_non_energy for sector in xsi.index.get_level_values('Sector').unique()}).T
     price_index_energy_concat.index.name = 'Sector'
 
@@ -408,10 +406,12 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
 
     # Final demand
     # final_demand = (a_efficiency**(kappa-1) * betai_hat * PSigmaY * price_index**(kappa) *  price_index_energy_concat**(sigma - kappa) * price_imports_finaldemand**(mu - sigma) ).mul(pi_hat**(-mu), axis=0)
-    # TODO: ajouter les autres betai
     final_demand = (a_efficiency**(kappa-1) * betai_hat['sector'] * betai_energydurable_hat_concat * betai_nondurableenergyservices_hat_concat * PSigmaY * price_index ** rho * price_index_energy_services_concat ** (kappa - rho) * price_index_energy_concat ** (sigma - kappa) * price_imports_finaldemand ** (mu - sigma)).mul(pi_hat**(-mu), axis=0)
 
     ### Residuals
+
+    nominal_GDP = PSigmaY * price_index
+
     # Prices
     if theta == 1:
         res1 = np.log(pi_hat) - (sectors['eta'] * np.log(vi_hat) + (1 - sectors['eta']) * np.log(price_intermediate))
@@ -419,14 +419,16 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
         res1 = pi_hat ** (1 - theta) - (sectors['eta'] * vi_hat ** (1 - theta) + (1 - sectors['eta']) * price_intermediate ** (1 - theta))
 
     # Quantities
-    phi = sectors.loc[:, sectors.columns.str.contains('phi_')]  # share of final consumption in total output
-    phi = phi.rename(columns=lambda x: x.split('_')[1])
-    phi.columns.names = ['Country']  # TODO: modify in input directly
-    assert phi.shape == final_demand.shape
     res2 = yi_hat - ((final_demand * phi).sum(axis=1) + (Delta * intermediate_demand).sum(axis=0))
 
+    if new_consumer:  # we define the revenues from the new consumer
+        res3bis = nominal_GDP[f'{domestic_country}2'] - nominal_GDP[f'{domestic_country}1']
+        nominal_GDP[domestic_country] = nominal_GDP[f'{domestic_country}2']
+        nominal_GDP = nominal_GDP.drop([f'{domestic_country}2', f'{domestic_country}1'])
+
     # World GDP is the numeraire, and stays the same
-    res3 = (share_GNE * PSigmaY * price_index).sum() - 1
+    res3 = (share_GNE * nominal_GDP).sum() - 1
+
 
     revenue = sectors.loc[:, sectors.columns.str.contains('rev_')]
     rev_labor_dom = revenue['rev_labor'].xs(domestic_country, level='Country', axis=0)
@@ -438,7 +440,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     if singlefactor == 'country':  # factors can be freely reallocated inside each country
         wi_hat_dom = w_country[domestic_country]
         ri_hat_dom = r_country[domestic_country]
-        res4 = (rev_labor_dom  * li_hat_dom  * wi_hat_dom).sum() + (rev_capital_dom  * ki_hat_dom  * ri_hat_dom).sum() - (PSigmaY * price_index)[domestic_country]
+        res4 = (rev_labor_dom  * li_hat_dom  * wi_hat_dom).sum() + (rev_capital_dom  * ki_hat_dom  * ri_hat_dom).sum() - (nominal_GDP)[domestic_country]
 
         share_labor = sectors['share_labor']
         share_capital = sectors['share_capital']
@@ -449,7 +451,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
         res = np.concatenate([res1.to_numpy(), res2.to_numpy(), np.array([res3]), np.array([res4]), res5.to_numpy(), res6.to_numpy()])
 
     elif singlefactor == 'all':  # factors can be freely reallocated across the world
-        res4 = (rev_labor_dom * li_hat_dom * w_world).sum() + (rev_capital_dom * ki_hat_dom * r_world).sum() - (PSigmaY * price_index)[domestic_country]
+        res4 = (rev_labor_dom * li_hat_dom * w_world).sum() + (rev_capital_dom * ki_hat_dom * r_world).sum() - (nominal_GDP)[domestic_country]
         share_labor_tot = sectors['share_labor_tot']
         share_capital_tot = sectors['share_capital_tot']
         res5 = 1 - (share_labor_tot * li_hat).sum()
@@ -461,16 +463,19 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
         # Definition of GDP in other country
         wi_hat_dom = wi_hat.xs('ROW', level='Country', axis=0)
         ri_hat_dom = ri_hat.xs('ROW', level='Country', axis=0)
-        res4 =(rev_labor_dom  * li_hat_dom  * wi_hat_dom).sum() + (rev_capital_dom  * ki_hat_dom  * ri_hat_dom).sum() - (PSigmaY * price_index)['ROW']
+        res4 =(rev_labor_dom  * li_hat_dom  * wi_hat_dom).sum() + (rev_capital_dom  * ki_hat_dom  * ri_hat_dom).sum() - (nominal_GDP)['ROW']
 
         res = np.concatenate([res1.to_numpy(), res2.to_numpy(), np.array([res3]), np.array([res4])])
+
+    if new_consumer:
+        res = np.concatenate([res, np.array([res3bis])])
 
     #
     # TODO: this aggregation is no longer valid, due to the new energy nest. Should be done again.
     final_demand_aggregator = ((xsi * final_demand**((mu-1)/mu)).groupby('Sector').sum())**(mu/(mu-1))
     budget_shares_hat = final_demand_aggregator * price_imports_finaldemand / (PSigmaY*price_index)
     budget_shares_new = budget_shares_hat * psi  # new budget shares, compiled from the hat and the initial version
-    variation_welfare = np.log(PSigmaY * price_index) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
+    variation_welfare = np.log(nominal_GDP) + np.log(((budget_shares_new*price_imports_finaldemand**(sigma - 1)).sum())**(1/(1-sigma)))
 
     # New budget shares with my new concatenation for energy services, durable and non-durable goods
     costs_durable_final_concat = pd.DataFrame({sector: costs_durable_final.loc['Non-Durable' if sector in NON_DURABLE_GOODS else 'Energy-Services'] for sector in xsi.index.get_level_values('Sector').unique()}).T
@@ -484,8 +489,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     sato_vartia_price_index = sato_vartia_price_index / sato_vartia_price_index.sum(axis=0)  # we use the formula from the foundational paper from Sato and Vartia (1976)
     sato_vartia_price_index = np.exp(sato_vartia_price_index.mul(np.log(pi_hat), axis=0).sum(axis=0))  # we again calculate the log price index
 
-    # TODO: Need to integrate efficiency parameter here, only works when aeff = 1 for now
-    # TODO: a modifier pour prendre en compte les autres betai
+    # TODO: Need to integrate efficiency parameter here, only works when aeff = 1 for now. Il faudrait l'ajouter dans l'aggrégateur pour les energy services
     final_demand_aggregator = ((xsi * final_demand ** ((mu - 1) / mu)).groupby('Sector').sum()) ** (mu / (mu - 1))
     final_demand_aggregator = (pd.concat([psi_durable, psi_non_durable, psi_energy], axis=0) * betai_hat['sector']**(1/sigma) * final_demand_aggregator ** ((sigma-1) / sigma)).groupby(lambda x: 'Energy' if x in ENERGY_SECTORS else ('Durable' if x in DURABLE_GOODS else 'Non-Durable')).sum() ** (sigma / (sigma - 1))
     final_demand_aggregator = pd.concat([final_demand_aggregator.loc['Non-Durable',:], ((betai_hat['energy_durable']**(1/kappa) * costs_energy_services_final * final_demand_aggregator.loc[['Energy', 'Durable'],:] ** ((kappa-1) / kappa)).sum(axis=0)) ** (kappa / (kappa-1))], axis=1).rename(columns={0: 'Energy-Services'}).T
@@ -507,8 +511,8 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
         'tornqvist_price_index': tornqvist_price_index,
         'sato_vartia_price_index': sato_vartia_price_index,
         'lloyd_moulton_price_index': lloyd_moulton_price_index,
-        'GDP': PSigmaY * price_index,
-        'domestic_domar': pi_hat * yi_hat / (PSigmaY * price_index),
+        'GDP': nominal_GDP,
+        'domestic_domar': pi_hat * yi_hat / (nominal_GDP),
         'domar': pi_hat * yi_hat,
         'final_demand': final_demand,
         'intermediate_demand': intermediate_demand,
@@ -538,19 +542,36 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     return res, output
 
 
-def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions, xsi, psi, costs_energy_final, psi_energy, psi_non_energy,
-                    costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, Delta, sectors_dirty_energy,
-                    final_use_dirty_energy, share_GNE, domestic_country, theta, sigma, epsilon, delta, mu, nu, kappa, rho):
+def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy,
+                    costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy,
+                    Gamma, Leontieff, Domestic, Delta, sectors_dirty_energy,
+                    final_use_dirty_energy, share_GNE, domestic_country, theta, sigma, epsilon, delta, mu, nu, kappa, rho,
+                    new_consumer, share_new_consumer):
     """Solves the equilibrium, under different settings."""
 
+    if new_consumer:
+        C = xsi.shape[1] - 1
+        C_consumer = C + 1
+    else:
+        C = xsi.shape[1]
+        C_consumer = C
     logging.info('Solving for single factor shared across the world')
     singlefactor = 'all'
     context_single = OptimizationContext(li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsilon, delta, mu, nu, kappa, rho,
-                                         sectors, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final,
+                                         sectors, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final,
                                          psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy,
-                                         Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor)
-    initial_guess = np.zeros(2 * N + 4)
+                                         Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor, new_consumer, share_new_consumer)
+    initial_guess = np.zeros(2 * N + C_consumer + C)
     sol, output_single = context_single.solve_equilibrium(initial_guess, method='krylov')
+
+    # logging.info('Solving for single factor')
+    # singlefactor = 'country'
+    # context_single = OptimizationContext(li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsilon, delta, mu, nu, kappa, rho,
+    #                                      sectors, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final,
+    #                                      psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy,
+    #                                      Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor, new_consumer, share_new_consumer)
+    # initial_guess = np.zeros(2 * N + C_consumer + 2*C)
+    # sol, output_single = context_single.solve_equilibrium(initial_guess, method='krylov')
 
     singlefactor = 'specific'
 
@@ -558,28 +579,19 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions,
     elasticity_cb = 0.97
     context = OptimizationContext(li_hat, ki_hat, betai_hat,
                                   a_efficiency, elasticity_cb, elasticity_cb, elasticity_cb, elasticity_cb, elasticity_cb, elasticity_cb, elasticity_cb,elasticity_cb,
-                                  sectors, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final,
+                                  sectors, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final,
                                   psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy,
-                                  Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor)
-    initial_guess = np.zeros(2 * N + 2)
+                                  Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor, new_consumer, share_new_consumer)
+    initial_guess = np.zeros(2 * N + C_consumer)
     sol_CD, output_CD = context.solve_equilibrium(initial_guess, method='krylov')
 
     logging.info('Solving for reference')
     context_ref = OptimizationContext(li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsilon, delta, mu, nu, kappa, rho,
-                                      sectors, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final,
+                                      sectors, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final,
                                       psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy,
-                                      Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor)
-    initial_guess = np.zeros(2 * N + 2)
+                                      Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor, new_consumer, share_new_consumer)
+    initial_guess = np.zeros(2 * N + C_consumer)
     sol, output_ref = context_ref.solve_equilibrium(initial_guess, method='krylov')
-
-    # logging.info('Solving for single factor')
-    # singlefactor = 'country'
-    # context_single = OptimizationContext(li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsilon, delta, mu, nu, kappa, rho,
-    #                                      sectors, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final,
-    #                                      psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy,
-    #                                      Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, domestic_country, singlefactor)
-    # initial_guess = np.zeros(2 * N + 6)
-    # sol, output_single = context_single.solve_equilibrium(initial_guess, method='krylov')
 
 
 
@@ -622,13 +634,14 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions,
     variation_welfare = pd.concat([output_CD['variation_welfare'].rename({i: f'variation_welfare_{i}_CD' for i in output_CD['variation_welfare'].index}), output_ref['variation_welfare'].rename({i: f'variation_welfare_{i}_ref' for i in output_ref['variation_welfare'].index}), output_single['variation_welfare'].rename({i: f'variation_welfare_{i}_single' for i in output_single['variation_welfare'].index})])
     global_variables = pd.concat([GDP, real_GDP, price_index, variation_welfare], axis=0)
 
-    emissions_hat = variation_emission(output_dict, betai_hat, emissions, sectors_dirty_energy, final_use_dirty_energy)  # TODO: à modifier avec les betaihat
+    emissions_hat = variation_emission(output_dict, betai_hat, emissions, Leontieff, Gamma, phi, sectors, sectors_dirty_energy, final_use_dirty_energy, new_consumer, domestic_country, share_new_consumer)  # TODO: à modifier avec les betaihat
 
     equilibrium_output = EquilibriumOutput(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar_tot, labor_capital, emissions_hat, global_variables, descriptions)
     return equilibrium_output
 
 
-def get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions):
+def get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions,
+                      new_consumer, country, share_new_consumer):
     """Computes variation in emissions based on variation of production, intermediate consumption and final demand.
     We rely on some approximations for this calculation. In particular, we do not distinguish between different types of dirty
     energy, and we only estimate an average variation in intermediate demand and final demand for these dirty energies. This
@@ -645,10 +658,19 @@ def get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_e
     final_demand_energy = (final_demand_energy * final_use_dirty_energy).sum(
         axis=0)  # average variation of final demand of dirty energy
     # For final demand, we only consider the share of total emissions, not differentiated by fossil fuel
-    total_variation_emissions = ((emissions['share_emissions_total_sectors'] * (
-                variation_emissions_energy + variation_emissions_process)).groupby('Country').sum() +
-                              emissions['share_emissions_total_finaldemand'].unstack('Country').sum(
-                                  axis=0) * final_demand_energy)
+    share_emissions_final_demand = emissions['share_emissions_total_finaldemand'].unstack('Country').sum(axis=0)
+    if new_consumer:  # we modify the share of emissions between the two types of consumers
+        share_emissions_final_demand['new_consumer'] = share_emissions_final_demand[country]
+        share_emissions_final_demand = share_emissions_final_demand.rename({country: f'{country}1', 'new_consumer': f'{country}2'})
+        share_emissions_final_demand[f'{country}2'] = share_new_consumer * share_emissions_final_demand[f'{country}2']
+        share_emissions_final_demand[f'{country}1'] = (1 - share_new_consumer) * share_emissions_final_demand[f'{country}1']
+    total_variation_emissions = (emissions['share_emissions_total_sectors'] * (
+                variation_emissions_energy + variation_emissions_process)).groupby('Country').sum()
+    if new_consumer:
+        group_mapping = {index: (country if index.startswith(country) else index) for index in share_emissions_final_demand.index}
+        total_variation_emissions += (share_emissions_final_demand * final_demand_energy).groupby(group_mapping).sum()
+    else:
+        total_variation_emissions += share_emissions_final_demand * final_demand_energy
     return total_variation_emissions
 
 
@@ -665,7 +687,7 @@ def get_emissions_total(total_variation_emissions, emissions):
     absolute_emissions.index = [f'{i}_absolute' for i in absolute_emissions.index]
     return absolute_emissions
 
-def variation_emission(output_dict, betai_hat, emissions, sectors_dirty_energy, final_use_dirty_energy):
+def variation_emission(output_dict, betai_hat, emissions, Leontieff, Gamma, phi, sectors, sectors_dirty_energy, final_use_dirty_energy, new_consumer, domestic_country, share_new_consumer):
     """Estimations variation in emissions in the new equilibrium, compared to reference."""
     results = pd.DataFrame()
     betai_energydurable_hat_concat = pd.DataFrame({sector: betai_hat['energy_durable_IO'].loc['Energy'] if sector in ENERGY_SECTORS else (betai_hat['energy_durable_IO'].loc['Durable'] if sector in DURABLE_GOODS else 1) for sector in xsi.index.get_level_values('Sector').unique()}).T
@@ -676,7 +698,7 @@ def variation_emission(output_dict, betai_hat, emissions, sectors_dirty_energy, 
 
     # For the input-output channel, we only consider some of the preference shocks, to avoid counting income rebound effect
     total_final_demand_variation = betai_hat['sector_IO'] * betai_energydurable_hat_concat * betai_nondurableenergyservices_hat_concat  # we consider variations across all nests to characterize total final variation
-    total_variation_emissions_io = input_output_calculation(total_final_demand_variation, Leontieff, Gamma, sectors, sectors_dirty_energy, final_use_dirty_energy, emissions)
+    total_variation_emissions_io = input_output_calculation(total_final_demand_variation, Leontieff, Gamma, phi, sectors_dirty_energy, final_use_dirty_energy, emissions, new_consumer, domestic_country, share_new_consumer)
     total_variation_emissions_io = total_variation_emissions_io.to_frame().rename(columns={0: f'emissions_IO'})
     absolute_emissions_io = get_emissions_total(total_variation_emissions_io, emissions)
     total_variation_emissions_io = pd.concat([total_variation_emissions_io, absolute_emissions_io.to_frame().rename(columns={0: f'emissions_IO'})], axis=0)
@@ -685,7 +707,7 @@ def variation_emission(output_dict, betai_hat, emissions, sectors_dirty_energy, 
         intermediate_demand = output['intermediate_demand']
         yi_hat = output['yi_hat']
         final_demand = output['final_demand']
-        total_variation_emissions = get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions)
+        total_variation_emissions = get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions, new_consumer, domestic_country, share_new_consumer)
         total_variation_emissions = total_variation_emissions.to_frame().rename(columns={0: f'emissions_{key}'})
         absolute_emissions = get_emissions_total(total_variation_emissions, emissions)
         total_variation_emissions = pd.concat([total_variation_emissions, absolute_emissions.to_frame().rename(columns={0: f'emissions_{key}'})], axis=0)
@@ -771,14 +793,15 @@ def process_output(dict_paths, index_names, folderpath):
     return emissions_df, emissions_absolute_df
 
 
-def input_output_calculation(betai_hat, Leontieff, Gamma, sectors, sectors_dirty_energy, final_use_dirty_energy, emissions):
+def input_output_calculation(betai_hat, Leontieff, Gamma, phi, sectors_dirty_energy, final_use_dirty_energy, emissions,
+                             new_consumer, domestic_country, share_new_consumer):
     """Takes vector of shocks and outputs estimated variation in emissions from simple input output framework.
     This framework does not include any price effect, and only relies on Leontieff matrix and direct input coefficients
     matrix."""
     # We calculate share of production that stems from final demand
-    phi = sectors.loc[:, sectors.columns.str.contains('phi_')]  # share of final consumption in total output
-    phi = phi.rename(columns=lambda x: x.split('_')[1])
-    phi.columns.names = ['Country']
+    # phi = sectors.loc[:, sectors.columns.str.contains('phi_')]  # share of final consumption in total output
+    # phi = phi.rename(columns=lambda x: x.split('_')[1])
+    # phi.columns.names = ['Country']
     pyi = sectors.loc[:, 'pyi']
     final_use_init = phi.mul(pyi, axis=0)  # final use expenditures in the initial state
 
@@ -790,7 +813,8 @@ def input_output_calculation(betai_hat, Leontieff, Gamma, sectors, sectors_dirty
     final_demand = betai_hat.copy()
     intermediate_demand_hat = pd.concat([yi_hat]*len(Leontieff), axis=1)  # in leontieff model, intermediate inputs are used in fixed proportions
     intermediate_demand_hat.columns = Gamma.columns
-    variation_emissions = get_emissions_hat(yi_hat, intermediate_demand_hat, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions)
+    variation_emissions = get_emissions_hat(yi_hat, intermediate_demand_hat, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions,
+                                            new_consumer, country=domestic_country, share_new_consumer=share_new_consumer)
     return variation_emissions
 
 
@@ -806,39 +830,86 @@ if __name__ == '__main__':
     filename = f"outputs/calib_{country}.xlsx"
     fileshocks = "data_deep/shocks_demand_06032024.xlsx"
     uniform_shock = False
+    new_consumer = True
+    share_new_consumer = 0.5
 
     calib = CalibOutput.from_excel(filename)
-    sectors, emissions, xsi, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.costs_energy_final, calib.psi_energy, calib.psi_non_energy, calib.costs_durable_final, calib.psi_durable, calib.psi_non_durable, calib.costs_energy_services_final, calib.Omega, calib.costs_energy, calib.Omega_energy, calib.Omega_non_energy ,calib.Gamma, calib.Leontieff, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
+    if new_consumer:
+        calib.add_final_consumer(country=domestic_country, share_new_consumer=share_new_consumer)
+    sectors, emissions, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.phi, calib.costs_energy_final, calib.psi_energy, calib.psi_non_energy, calib.costs_durable_final, calib.psi_durable, calib.psi_non_durable, calib.costs_energy_services_final, calib.Omega, calib.costs_energy, calib.Omega_energy, calib.Omega_non_energy ,calib.Gamma, calib.Leontieff, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
     N = len(sectors)
 
-    # sectors['gamma'] = 1.0
     shocks = read_file_shocks(fileshocks)
+
+    for col in shocks['sector'].columns:
+        if col != 'combined2':
+            pass
+        else:
+            logging.info(f"Shock {col}")
+            ki_hat = pd.Series(index=sectors.index, data=1)
+            li_hat = pd.Series(index=sectors.index, data=1)
+
+            # Processing shocks
+            betai_hat = {
+                'sector': process_shocks(col, shocks['sector'], uniform_shock, domestic_country, psi.columns, new_consumer),
+                'energy_durable': process_shocks(col, shocks['energy_durable'], uniform_shock, domestic_country, psi.columns, new_consumer),
+                'nondurable_energyservices': process_shocks(col, shocks['nondurable_energyservices'], uniform_shock, domestic_country, psi.columns, new_consumer),
+                'sector_IO': process_shocks(col, shocks['sector_IO'], uniform_shock, domestic_country, psi.columns, new_consumer),
+                'energy_durable_IO': process_shocks(col, shocks['energy_durable_IO'], uniform_shock, domestic_country, psi.columns, new_consumer),
+                'nondurable_energyservices_IO': process_shocks(col, shocks['nondurable_energyservices_IO'], uniform_shock, domestic_country, psi.columns, new_consumer)
+            }
+
+            # Create a vector full of ones for efficiency shocks
+            a_efficiency = pd.Series(index=shocks['sector'].index, data=1).to_frame()  # efficiency vector
+            a_efficiency = a_efficiency.rename(columns={a_efficiency.columns[0]: domestic_country})
+            a_efficiency = a_efficiency.reindex(psi.columns, axis=1, fill_value=1.0)
+            a_efficiency.index.names = ['Sector']
+
+            # theta: elasticity between labor/capital and intermediate inputs
+            # sigma: elasticity between inputs for final demand
+            # epsilon: elasticity between intermediate inputs
+            # delta: elasticity between varieties of products for production
+            # mu: elasticity between varieties of products for final demand
+            # nu: elasticity between energy and non-energy intermediate inputs
+            # kappa: elasticity between energy and durable goods
+            # rho: elasticity between energy services and non-durable goods
+
+            # Baseline calibration
+            theta, sigma, epsilon, delta, mu, nu, kappa, rho = 0.5, 0.9, 0.001, 0.9, 0.9, 0.001, 0.5, 0.95
+            equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions, xsi, psi, phi, costs_energy_final,
+                                                 psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable,
+                                                 costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff,
+                                                 Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
+                                                 theta, sigma, epsilon, delta, mu, nu, kappa, rho, new_consumer, share_new_consumer)
+            if uniform_shock:
+                uniform = '_uniform'
+            else:
+                uniform = ''
+            equilibrium_output.to_excel(f"outputs/new_simus/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}_rho{rho}{uniform}.xlsx")
 
 
     # # Efficiency shocks
     # ki_hat = pd.Series(index=sectors.index, data=1)
     # li_hat = pd.Series(index=sectors.index, data=1)
-    # betai_hat = pd.Series(index=demand_shocks.index, data=1).to_frame()  # efficiency vector
-    # betai_hat = betai_hat.rename(columns={betai_hat.columns[0]: domestic_country})
-    # betai_hat = betai_hat.reindex(psi.columns, axis=1, fill_value=1.0)
-    # betai_hat.index.names = ['Sector']
-    # betai_hat.columns.names = ['Country']
+    # for key in betai_hat.keys():
+    #     betai_hat[key] = betai_hat[key].applymap(lambda x:1)  # we only assume 1 values everywhere
     #
-    # a_efficiency = pd.Series(index=demand_shocks.index, data=1).to_frame()  # efficiency vector
+    # a_efficiency = pd.Series(index=betai_hat['sector'].index, data=1).to_frame()  # efficiency vector
     # a_efficiency = a_efficiency.rename(columns={a_efficiency.columns[0]: domestic_country})
     # a_efficiency = a_efficiency.reindex(psi.columns, axis=1, fill_value=1.0)
     # a_efficiency.index.names = ['Sector']
     # a_efficiency.loc[ENERGY_SECTORS,domestic_country] = 1.5
     #
     # # Baseline calibration
-    # theta, sigma, epsilon, delta, mu, nu, kappa, rho = 0.5, 0.9, 0.001, 0.9, 0.9, 0.9, 0.9, 0.9
+    # theta, sigma, epsilon, delta, mu, nu, kappa, rho = 0.5, 0.9, 0.001, 0.9, 0.9, 0.001, 0.5, 0.95
     # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions, xsi, psi,
     #                                      costs_energy_final,
     #                                      psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable,
-    #                                      costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy,
+    #                                      costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff,
     #                                      Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE,
     #                                      domestic_country, theta, sigma, epsilon, delta, mu, nu, kappa, rho)
-    # equilibrium_output.to_excel(f"outputs/{domestic_country}_efficiency_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}_rho{rho}.xlsx")
+    # equilibrium_output.to_excel(f"outputs/new_simus/{domestic_country}_efficiency_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}_rho{rho}.xlsx")
+
     #
     # # Labor supply shocks
     # li_hat.loc[li_hat.index.get_level_values('Country') == 'EUR'] = 0.96
@@ -855,58 +926,10 @@ if __name__ == '__main__':
     # equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions, xsi, psi,
     #                                      costs_energy_final,
     #                                      psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable,
-    #                                      costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy,
+    #                                      costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff,
     #                                      Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE,
     #                                      domestic_country, theta, sigma, epsilon, delta, mu, nu, kappa, rho)
     # equilibrium_output.to_excel(f"outputs/{domestic_country}_labor_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}_rho{rho}.xlsx")
-
-    for col in shocks['sector'].columns:
-        if col == 'energyservices':
-            pass
-        else:
-            logging.info(f"Shock {col}")
-            ki_hat = pd.Series(index=sectors.index, data=1)
-            li_hat = pd.Series(index=sectors.index, data=1)
-
-            # Processing shocks
-            betai_hat = {
-                'sector': process_shocks(col, shocks['sector'], uniform_shock, domestic_country, psi.columns),
-                'energy_durable': process_shocks(col, shocks['energy_durable'], uniform_shock, domestic_country, psi.columns),
-                'nondurable_energyservices': process_shocks(col, shocks['nondurable_energyservices'], uniform_shock, domestic_country, psi.columns),
-                'sector_IO': process_shocks(col, shocks['sector_IO'], uniform_shock, domestic_country, psi.columns),
-                'energy_durable_IO': process_shocks(col, shocks['energy_durable_IO'], uniform_shock, domestic_country, psi.columns),
-                'nondurable_energyservices_IO': process_shocks(col, shocks['nondurable_energyservices_IO'], uniform_shock, domestic_country, psi.columns)
-            }
-
-            # Create a vector full of ones for efficiency shocks
-            a_efficiency = pd.Series(index=shocks['sector'].index, data=1).to_frame()  # efficiency vector
-            a_efficiency = a_efficiency.rename(columns={a_efficiency.columns[0]: domestic_country})
-            a_efficiency = a_efficiency.reindex(psi.columns, axis=1, fill_value=1.0)
-            a_efficiency.index.names = ['Sector']
-
-            # theta: elasticity between labor/capital and intermediate inputs
-            # sigma: elasticity between inputs for final demand
-            # epsilon: elasticity between intermediate inputs
-            # delta: elasticity between varieties of products for production
-            # mu: elasticity between varieties of products for final demand
-            # nu: elasticity between energy and non-energy intermediate inputs
-            # kappa: elasticity between energy and non-energy final demand
-
-            # Baseline calibration
-            theta, sigma, epsilon, delta, mu, nu, kappa, rho = 0.5, 0.9, 0.001, 0.9, 0.9, 0.9, 0.9, 0.95
-            equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions, xsi, psi, costs_energy_final,
-                                                 psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable,
-                                                 costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy,
-                                                 Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, domestic_country,
-                                                 theta, sigma, epsilon, delta, mu, nu, kappa, rho)
-            if uniform_shock:
-                uniform = '_uniform'
-            else:
-                uniform = ''
-            equilibrium_output.to_excel(f"outputs/new_simus/{domestic_country}_{col}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}_rho{rho}{uniform}.xlsx")
-
-
-
 
 
     # list_methods = ['hybr', 'lm', 'broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']
@@ -920,3 +943,12 @@ if __name__ == '__main__':
     #     # lvec_sol = minimize(residuals_wrapper, initial_guess, jac=lambda x: grad_residuals(residuals_wrapper, x), method=m, options={'maxiter': 10})
     #     lvec_sol = minimize(residuals_wrapper, initial_guess, method=m, options={'maxiter': 1})
     #     print(residuals_wrapper(lvec_sol.x))
+
+    # # Estimate the necessary adjustment in the x parameters to ensure that the mean level of the x stay constant
+    # tmp = shocks['sector']
+    # tmp = tmp['food2']
+    # tmp = tmp[tmp != 1].dropna()
+    # tmp_durable = tmp[tmp.index.isin(DURABLE_GOODS)]
+    # tmp_non_durable = tmp[tmp.index.isin(NON_DURABLE_GOODS)]
+    # adjustment_x_nondurable = (1-(psi_non_durable.loc[tmp_non_durable.index,'EUR'] * tmp_non_durable).sum()) / (1 - psi_non_durable.loc[tmp_non_durable.index,'EUR'].sum())
+    # adjustment_x_durable = (1-(psi_durable.loc[tmp_durable.index,'EUR'] * tmp_durable).sum()) / (1 - psi_durable.loc[tmp_durable.index,'EUR'].sum())
