@@ -7,7 +7,7 @@ from calibrate import CalibOutput
 from scipy.optimize import fsolve, root, minimize, approx_fprime
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
-from utils import add_long_description, flatten_index, unflatten_index_in_df
+from utils import EquilibriumOutput, add_long_description, flatten_index, unflatten_index_in_df
 from dataclasses import dataclass
 import time
 from pathlib import Path
@@ -165,81 +165,6 @@ class OptimizationContext:
         raise ValueError("All methods failed.")
 
 
-@dataclass
-class EquilibriumOutput:
-    """Class to save the outcome of the model."""
-    pi_hat: pd.DataFrame
-    yi_hat: pd.DataFrame
-    pi_imports_finaldemand: pd.DataFrame
-    final_demand: pd.DataFrame
-    domar: pd.DataFrame
-    labor_capital: pd.DataFrame
-    emissions_hat: pd.DataFrame
-    global_variables: pd.Series
-    descriptions: pd.Series
-
-    def to_excel(self, path):
-        with pd.ExcelWriter(path) as writer:
-            for current_df, sheet_name in [
-                (self.pi_hat, "pi_hat"),
-                (self.yi_hat, "yi_hat"),
-                (self.pi_imports_finaldemand, "pi_imports_finaldemand"),
-                (self.final_demand, "final_demand"),
-                (self.domar, "domar"),
-                (self.labor_capital, "labor_capital"),
-                (self.emissions_hat, "emissions_hat"),
-                (self.global_variables, "global_variables"),
-                (self.descriptions, "descriptions"),
-            ]:
-                is_dataframe = type(current_df) is not pd.Series
-
-                # Copy the dataframe to avoid modifying the original one
-                df_to_write = current_df.copy()
-                # Add long description if the index has a "Sector" level
-                if "Sector" in current_df.index.names and sheet_name != "descriptions":
-                    df_to_write = add_long_description(df_to_write, self.descriptions)
-                # Flatten the index
-                df_to_write.index = flatten_index(df_to_write.index)
-
-                df_to_write.to_excel(
-                    writer,
-                    sheet_name=sheet_name,
-                    header=is_dataframe,
-                    index=True)
-
-    @classmethod
-    def from_excel(cls, path):
-        with pd.ExcelFile(path) as xls:
-            pi_hat = unflatten_index_in_df(
-                pd.read_excel(xls, sheet_name="pi_hat", index_col=0)
-                .drop(columns="long_description"),
-                axis=0, level_names=["Country", "Sector"])
-            yi_hat = unflatten_index_in_df(
-                pd.read_excel(xls, sheet_name="yi_hat", index_col=0)
-                .drop(columns="long_description"),
-                axis=0, level_names=["Country", "Sector"])
-            pi_imports_finaldemand = pd.read_excel(xls, sheet_name="pi_imports_finaldemand", index_col=0).drop(columns="long_description")
-            final_demand = unflatten_index_in_df(
-                pd.read_excel(xls, sheet_name="final_demand", index_col=0)
-                .drop(columns="long_description"),
-                axis=0, level_names=["Country", "Sector"])
-            domar = unflatten_index_in_df(
-                pd.read_excel(xls, sheet_name="domar", index_col=0)
-                .drop(columns="long_description"),
-                axis=0, level_names=["Country", "Sector"]
-            )
-            labor_capital = unflatten_index_in_df(
-                pd.read_excel(xls, sheet_name="labor_capital", index_col=0)
-                .drop(columns="long_description"),
-                axis=0, level_names=["Country", "Sector"]
-            )
-            emissions_hat = pd.read_excel(xls, sheet_name="emissions_hat", index_col=0)
-            global_variables = pd.read_excel(xls, sheet_name="global_variables", index_col=0, header=None).squeeze()
-            descriptions = pd.read_excel(xls, sheet_name="descriptions", index_col=0, header=None).squeeze()
-            descriptions.index.name = "Sector"
-            descriptions.name = 0
-        return cls(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar, labor_capital, emissions_hat, global_variables, descriptions)
-
 def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsilon, delta, mu, nu, kappa, rho, sectors, xsi, psi, phi, costs_energy_final, psi_energy,
               psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy,
               Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, singlefactor='specific', domestic_country = 'FRA',
@@ -396,7 +321,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
     else:
         price_index = (betai_hat['nondurable_energyservices'].loc['Non-Durable'] * costs_durable_final.loc['Non-Durable'] * price_index_non_durable ** (1-rho) + betai_hat['nondurable_energyservices'].loc['Energy-Services'] * costs_durable_final.loc['Energy-Services'] * price_index_energy_services ** (1-rho)) ** (1 / (1-rho))
 
-    price_index_intermediary_nests_concat = pd.DataFrame({sector: price_index_energy_services ** (kappa - rho) * price_index_energy ** (sigma - kappa) if sector in ENERGY_SECTORS else (price_index_energy_services ** (kappa - rho) * price_index_durable ** (sigma - kappa) if sector in NON_DURABLE_GOODS else price_index_non_durable ** (sigma - rho)) for sector in xsi.index.get_level_values('Sector').unique()}).T
+    price_index_intermediary_nests_concat = pd.DataFrame({sector: price_index_energy_services ** (kappa - rho) * price_index_energy ** (sigma - kappa) if sector in ENERGY_SECTORS else (price_index_energy_services ** (kappa - rho) * price_index_durable ** (sigma - kappa) if sector in DURABLE_GOODS else price_index_non_durable ** (sigma - rho)) for sector in xsi.index.get_level_values('Sector').unique()}).T
     price_index_intermediary_nests_concat.index.name = 'Sector'
 
     betai_energydurable_hat_concat = pd.DataFrame({sector: betai_hat['energy_durable'].loc['Energy'] if sector in ENERGY_SECTORS else (betai_hat['energy_durable'].loc['Durable'] if sector in DURABLE_GOODS else 1) for sector in xsi.index.get_level_values('Sector').unique()}).T
@@ -510,6 +435,10 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
         'ki_hat': ki_hat,
         'PSigmaY': PSigmaY,
         'price_index': price_index,
+        'price_index_energy': price_index_energy,
+        'price_index_durable': price_index_durable,
+        'price_index_non_durable': price_index_non_durable,
+        'price_index_energy_services': price_index_energy_services,
         'tornqvist_price_index': tornqvist_price_index,
         'sato_vartia_price_index': sato_vartia_price_index,
         'lloyd_moulton_price_index': lloyd_moulton_price_index,
@@ -620,7 +549,8 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions,
     domar_tot = pd.concat([domestic_domar, domar, domestic_factor_labor_domar, factor_labor_domar, domestic_factor_capital_domar, factor_capital_domar], axis=1)
     real_GDP = pd.concat([output_CD['PSigmaY'].rename({i: f'real_GDP_{i}_CD' for i in output_CD['PSigmaY'].index}), output_ref['PSigmaY'].rename({i: f'real_GDP_{i}_ref' for i in output_ref['PSigmaY'].index}), output_single['PSigmaY'].rename({i: f'real_GDP_{i}_single' for i in output_single['PSigmaY'].index})])
     GDP = pd.concat([output_CD['GDP'].rename({i: f'GDP_{i}_CD' for i in output_CD['GDP'].index}), output_ref['GDP'].rename({i: f'GDP_{i}_ref' for i in output_ref['GDP'].index}), output_single['GDP'].rename({i: f'GDP_{i}_single' for i in output_single['GDP'].index})])
-    price_list = ['price_index', 'tornqvist_price_index', 'sato_vartia_price_index', 'lloyd_moulton_price_index']
+    price_list = ['price_index', 'price_index_energy', 'price_index_durable', 'price_index_non_durable', 'price_index_energy_services',
+                  'tornqvist_price_index', 'sato_vartia_price_index', 'lloyd_moulton_price_index']
     concatenated_price_info = {
         item: pd.concat(
             [df[item].rename(lambda i: f"{item}_{i}_{suffix}")
@@ -638,9 +568,9 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions,
     variation_welfare = pd.concat([output_CD['variation_welfare'].rename({i: f'variation_welfare_{i}_CD' for i in output_CD['variation_welfare'].index}), output_ref['variation_welfare'].rename({i: f'variation_welfare_{i}_ref' for i in output_ref['variation_welfare'].index}), output_single['variation_welfare'].rename({i: f'variation_welfare_{i}_single' for i in output_single['variation_welfare'].index})])
     global_variables = pd.concat([GDP, real_GDP, price_index, variation_welfare], axis=0)
 
-    emissions_hat = variation_emission(output_dict, betai_hat, emissions, Leontieff, Gamma, phi, xsi, sectors, sectors_dirty_energy, final_use_dirty_energy, new_consumer, domestic_country, share_new_consumer)  # TODO: à modifier avec les betaihat
+    emissions_hat, emissions_detail = variation_emission(output_dict, betai_hat, emissions, Leontieff, Gamma, phi, xsi, sectors, sectors_dirty_energy, final_use_dirty_energy, new_consumer, domestic_country, share_new_consumer)  # TODO: à modifier avec les betaihat
 
-    equilibrium_output = EquilibriumOutput(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar_tot, labor_capital, emissions_hat, global_variables, descriptions)
+    equilibrium_output = EquilibriumOutput(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar_tot, labor_capital, emissions_hat, emissions_detail, global_variables, descriptions)
     return equilibrium_output
 
 
@@ -659,6 +589,8 @@ def get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_e
     variation_emissions_process = yi_hat * (
                 1 - emissions['share_energy_related'])  # variation of emissions related to processes
     final_demand_energy = final_demand.loc[final_demand.index.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS), :]
+    total_variation_emissions = (emissions['share_emissions_total_sectors'] * (
+                variation_emissions_energy + variation_emissions_process)).groupby('Country').sum()
     final_demand_energy = (final_demand_energy * final_use_dirty_energy).sum(
         axis=0)  # average variation of final demand of dirty energy
     # For final demand, we only consider the share of total emissions, not differentiated by fossil fuel
@@ -668,14 +600,32 @@ def get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_e
         share_emissions_final_demand = share_emissions_final_demand.rename({country: f'{country}1', 'new_consumer': f'{country}2'})
         share_emissions_final_demand[f'{country}2'] = share_new_consumer * share_emissions_final_demand[f'{country}2']
         share_emissions_final_demand[f'{country}1'] = (1 - share_new_consumer) * share_emissions_final_demand[f'{country}1']
-    total_variation_emissions = (emissions['share_emissions_total_sectors'] * (
-                variation_emissions_energy + variation_emissions_process)).groupby('Country').sum()
     if new_consumer:
         group_mapping = {index: (country if index.startswith(country) else index) for index in share_emissions_final_demand.index}
         total_variation_emissions += (share_emissions_final_demand * final_demand_energy).groupby(group_mapping).sum()
     else:
         total_variation_emissions += share_emissions_final_demand * final_demand_energy
-    return total_variation_emissions
+    emissions_breakdown = get_emissions_breakdown(yi_hat, intermediate_demand_energy_dirty, final_demand_energy, emissions, share_emissions_final_demand, country, new_consumer)
+    return total_variation_emissions, emissions_breakdown
+
+
+def get_emissions_breakdown(yi_hat, intermediate_demand_energy_dirty, final_demand_energy, emissions, share_emissions_final_demand, country, new_consumer):
+    """Extracts the breakdown of emissions variation, differentiating between process-related, energy-related and final demand-related emissions. Also includes the specific sector
+    from which the emissions variation originates."""
+    variation_emissions_process = (emissions['share_emissions_total_sectors'] * (yi_hat - 1) * (1 - emissions['share_energy_related'])).unstack('Country')
+    variation_emissions_process.index = pd.MultiIndex.from_tuples([(i, 'process') for i in variation_emissions_process.index], names=['Sector', 'Type'])
+    variation_emissions_energy = (emissions['share_emissions_total_sectors'] * (intermediate_demand_energy_dirty - 1) * emissions['share_energy_related']).unstack('Country')
+    variation_emissions_energy.index = pd.MultiIndex.from_tuples([(i, 'energy') for i in variation_emissions_energy.index], names=['Sector', 'Type'])
+    if new_consumer:  # TODO: a modifier
+        group_mapping = {index: (country if index.startswith(country) else index) for index in share_emissions_final_demand.index}
+        variation_emissions_finaldemand = (share_emissions_final_demand * (final_demand_energy - 1)).groupby(group_mapping).sum()
+    else:
+        variation_emissions_final_demand = (share_emissions_final_demand * (final_demand_energy -1)).to_frame().T
+        variation_emissions_final_demand.index = pd.MultiIndex.from_tuples([('FinalDemand', 'final demand')], names=['Sector', 'Type'])
+
+    emissions_breakdown = pd.concat([variation_emissions_process, variation_emissions_energy, variation_emissions_final_demand], axis=0)
+    return emissions_breakdown
+
 
 
 def get_emissions_total(total_variation_emissions, emissions):
@@ -692,8 +642,9 @@ def get_emissions_total(total_variation_emissions, emissions):
     return absolute_emissions
 
 def variation_emission(output_dict, betai_hat, emissions, Leontieff, Gamma, phi, xsi, sectors, sectors_dirty_energy, final_use_dirty_energy, new_consumer, domestic_country, share_new_consumer):
-    """Estimations variation in emissions in the new equilibrium, compared to reference."""
-    results = pd.DataFrame()
+    """Estimations variation in emissions in the new equilibrium, compared to reference. Returns both aggregate emissions, and
+    a breakdown of emissions decrease through sectors and processes."""
+    results, emissions_detail_df = pd.DataFrame(), []
     betai_energydurable_hat_concat = pd.DataFrame({sector: betai_hat['energy_durable_IO'].loc['Energy'] if sector in ENERGY_SECTORS else (betai_hat['energy_durable_IO'].loc['Durable'] if sector in DURABLE_GOODS else 1) for sector in xsi.index.get_level_values('Sector').unique()}).T
     betai_energydurable_hat_concat.index.name = 'Sector'
 
@@ -711,92 +662,16 @@ def variation_emission(output_dict, betai_hat, emissions, Leontieff, Gamma, phi,
         intermediate_demand = output['intermediate_demand']
         yi_hat = output['yi_hat']
         final_demand = output['final_demand']
-        total_variation_emissions = get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions, new_consumer, domestic_country, share_new_consumer)
+        total_variation_emissions, emissions_breakdown = get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions, new_consumer, domestic_country, share_new_consumer)
         total_variation_emissions = total_variation_emissions.to_frame().rename(columns={0: f'emissions_{key}'})
+        emissions_breakdown.columns = [f'{idx}_{key}' for idx in emissions_breakdown.columns]
+        emissions_detail_df.append(emissions_breakdown)
         absolute_emissions = get_emissions_total(total_variation_emissions, emissions)
         total_variation_emissions = pd.concat([total_variation_emissions, absolute_emissions.to_frame().rename(columns={0: f'emissions_{key}'})], axis=0)
 
         results = pd.concat([results, total_variation_emissions], axis=1)
-    return results
-
-
-def process_output(dict_paths, index_names, folderpath):
-    """Creates an output file which contains the variation of emissions for each country and each sector, in correct format.
-    Function is used for plots only."""
-    emissions_dict = dict()
-    emissions_absolute_dict = dict()
-    welfare_dict = dict()
-    for k in dict_paths.keys():
-        equilibrium_output = EquilibriumOutput.from_excel(dict_paths[k])
-        emissions_dict[k] = equilibrium_output.emissions_hat
-        welfare_dict[k] = equilibrium_output.global_variables
-
-    # Get emissions variation
-    concatenated_dfs = []
-    concatenated_dfs_2 = []
-
-    def rename_index(L, country):
-        new_index = []
-        for i in L:
-            tmp = i.split('_absolute')[0]
-            if tmp == country:
-                new_index.append('Dom.')
-            else:
-                new_index.append('RoW')
-        return new_index
-
-    for key, df in emissions_dict.items():
-        country = df.index[0]
-        index_values = key.split(' - ')
-        transformed_df = df.loc[country] - 1  # we transform relative variation to absolute variation
-        transformed_df = transformed_df.to_frame().T
-        transformed_df.index = pd.MultiIndex.from_tuples([tuple([country] + index_values)], names=['Aggregation'] + index_names)
-        concatenated_dfs.append(transformed_df)
-
-        emissions_absolute = df.loc[df.index.str.contains('_absolute')]
-
-        emissions_absolute.index = rename_index(emissions_absolute.index, country)
-        emissions_absolute.index = pd.MultiIndex.from_tuples([tuple([country] + index_values) + (idx,) for idx in emissions_absolute.index], names=['Aggregation'] + index_names + ['Country'])
-        # emissions_absolute.index = pd.MultiIndex.from_product([tuple([country] + index_values), emissions_absolute.index], names=['Aggregation'] + index_names + ['Country'])
-        concatenated_dfs_2.append(emissions_absolute)
-    emissions_df = pd.concat(concatenated_dfs, axis=0)
-    emissions_df = emissions_df.rename(columns={
-        'emissions_IO': 'IO',
-        'emissions_CD': 'D+CD',
-        'emissions_ref': 'D+CD+CES',
-        'emissions_single': 'D'
-    })
-    emissions_df = emissions_df.reindex(['IO', 'D', 'D+CD', 'D+CD+CES'], axis=1)
-    emissions_df.columns.names = ['Effect']
-    emissions_df = emissions_df.stack()
-
-    emissions_absolute_df = pd.concat(concatenated_dfs_2, axis=0)
-    emissions_absolute_df = emissions_absolute_df.rename(columns={
-        'emissions_IO': 'IO',
-        'emissions_CD': 'D+CD',
-        'emissions_ref': 'D+CD+CES',
-        'emissions_single': 'D'
-    })
-    emissions_absolute_df = emissions_absolute_df.reindex(['IO', 'D', 'D+CD', 'D+CD+CES'], axis=1)
-    emissions_absolute_df = emissions_absolute_df.stack()
-    # rename last level of index from None to Effect
-    # the level is the last level
-    emissions_absolute_df.index = emissions_absolute_df.index.set_names('Effect', level=-1)
-
-    if not (folderpath / Path('postprocess')).is_dir():
-        os.mkdir(folderpath / Path('postprocess'))
-    with pd.ExcelWriter(folderpath / Path('postprocess') / Path('emissions.xlsx')) as writer:
-        emissions_df.to_excel(
-            writer,
-            header=True,
-            index=True)
-
-    with pd.ExcelWriter(folderpath / Path('postprocess') / Path('emissions_absolute_df.xlsx')) as writer:
-        emissions_absolute_df.to_excel(
-            writer,
-            header=True,
-            index=True)
-    return emissions_df, emissions_absolute_df
+    emissions_detail_df = pd.concat(emissions_detail_df, axis=1)
+    return results, emissions_detail_df
 
 
 def input_output_calculation(betai_hat, Leontieff, Gamma, phi, sectors, sectors_dirty_energy, final_use_dirty_energy, emissions,
@@ -819,7 +694,7 @@ def input_output_calculation(betai_hat, Leontieff, Gamma, phi, sectors, sectors_
     final_demand = betai_hat.copy()
     intermediate_demand_hat = pd.concat([yi_hat]*len(Leontieff), axis=1)  # in leontieff model, intermediate inputs are used in fixed proportions
     intermediate_demand_hat.columns = Gamma.columns
-    variation_emissions = get_emissions_hat(yi_hat, intermediate_demand_hat, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions,
+    variation_emissions, emissions_breakdown = get_emissions_hat(yi_hat, intermediate_demand_hat, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions,
                                             new_consumer, country=domestic_country, share_new_consumer=share_new_consumer)
     return variation_emissions
 

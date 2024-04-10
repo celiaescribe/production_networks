@@ -5,7 +5,87 @@ from matplotlib import pyplot as plt
 import datetime
 from pathlib import Path
 from matplotlib.ticker import MaxNLocator
+from dataclasses import dataclass
+import os
 
+
+@dataclass
+class EquilibriumOutput:
+    """Class to save the outcome of the model."""
+    pi_hat: pd.DataFrame
+    yi_hat: pd.DataFrame
+    pi_imports_finaldemand: pd.DataFrame
+    final_demand: pd.DataFrame
+    domar: pd.DataFrame
+    labor_capital: pd.DataFrame
+    emissions_hat: pd.DataFrame
+    emissions_detail: pd.DataFrame
+    global_variables: pd.Series
+    descriptions: pd.Series
+
+    def to_excel(self, path):
+        with pd.ExcelWriter(path) as writer:
+            for current_df, sheet_name in [
+                (self.pi_hat, "pi_hat"),
+                (self.yi_hat, "yi_hat"),
+                (self.pi_imports_finaldemand, "pi_imports_finaldemand"),
+                (self.final_demand, "final_demand"),
+                (self.domar, "domar"),
+                (self.labor_capital, "labor_capital"),
+                (self.emissions_hat, "emissions_hat"),
+                (self.emissions_detail, "emissions_detail"),
+                (self.global_variables, "global_variables"),
+                (self.descriptions, "descriptions"),
+            ]:
+                is_dataframe = type(current_df) is not pd.Series
+
+                # Copy the dataframe to avoid modifying the original one
+                df_to_write = current_df.copy()
+                # Add long description if the index has a "Sector" level
+                if "Sector" in current_df.index.names and sheet_name != "descriptions" and sheet_name != "emissions_detail":
+                    df_to_write = add_long_description(df_to_write, self.descriptions)
+                # Flatten the index
+                df_to_write.index = flatten_index(df_to_write.index)
+
+                df_to_write.to_excel(
+                    writer,
+                    sheet_name=sheet_name,
+                    header=is_dataframe,
+                    index=True)
+
+    @classmethod
+    def from_excel(cls, path):
+        with pd.ExcelFile(path) as xls:
+            pi_hat = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="pi_hat", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"])
+            yi_hat = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="yi_hat", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"])
+            pi_imports_finaldemand = pd.read_excel(xls, sheet_name="pi_imports_finaldemand", index_col=0).drop(columns="long_description")
+            final_demand = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="final_demand", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"])
+            domar = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="domar", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"]
+            )
+            labor_capital = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="labor_capital", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"]
+            )
+            emissions_hat = pd.read_excel(xls, sheet_name="emissions_hat", index_col=0)
+            emissions_detail = pd.read_excel(xls, sheet_name="emissions_detail", index_col=0)
+            global_variables = pd.read_excel(xls, sheet_name="global_variables", index_col=0, header=None).squeeze()
+            descriptions = pd.read_excel(xls, sheet_name="descriptions", index_col=0, header=None).squeeze()
+            descriptions.index.name = "Sector"
+            descriptions.name = 0
+        return cls(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar, labor_capital, emissions_hat, emissions_detail, global_variables, descriptions)
 
 def add_long_description(df, descriptions):
     "Add the long description of the sectors to the DataFrame"
@@ -58,7 +138,7 @@ def same_df(df1, df2):
     )
 
 
-def parse_outputs(folder, list_sectors, post_processing, reference=None):
+def parse_outputs(folder, list_sectors, post_processing, configref=None):
     """List files from a given folder according to conditions, and create a dictionary containing the files and corresponding configuration names. The goal is to automate the process.
     folder: Path
         Path to the folder containing the files
@@ -68,12 +148,14 @@ def parse_outputs(folder, list_sectors, post_processing, reference=None):
         Type of post-processing to be considered. It can be 'reference', 'sensitivity_energyservices' or 'sensitivity_energydurable'.
         If 'reference', the function will look for the file with the reference configuration.
         If 'sensitivity_energyservices', the function will look for the files with the reference configuration and different values of kappa.
-    reference: dict
+    configref: dict
         Reference configuration. Default is None. If None, the reference configuration is {'theta': 0.5, 'sigma': 0.9, 'epsilon': 0.001, 'delta': 0.9, 'mu': 0.9, 'nu': 0.001, 'kappa': 0.5, 'rho': 0.95}
     """
     assert post_processing in ['reference', 'sensitivity_energyservices', 'sensitivity_durable']
-    if reference is None:
-        reference = {'theta': 0.5, 'sigma': 0.9, 'epsilon': 0.001, 'delta': 0.9, 'mu': 0.9, 'nu': 0.001, 'kappa': 0.5, 'rho': 0.95}
+    reference = {'theta': 0.5, 'sigma': 0.9, 'epsilon': 0.001, 'delta': 0.9, 'mu': 0.9, 'nu': 0.001, 'kappa': 0.5, 'rho': 0.95}
+    if configref is not None:
+        assert isinstance(configref, dict)
+        reference.update(configref)
     d = {}
     # list files inside folder
     for path in folder.iterdir():
@@ -113,7 +195,7 @@ def parse_outputs(folder, list_sectors, post_processing, reference=None):
                 if all(reference[key] == current_values[key] for key in reference):
                     if sector in list_sectors:
                         d[sector] = path
-            elif post_processing == 'sensitivity_energyservices':
+            elif post_processing == 'sensitivity_energyservices':  # parameter between energy and durables
                 # Check if all parameters except kappa match their reference values
                 if all(reference[key] == current_values[key] for key in reference if key != 'kappa'):
                     if kappa < 0.2:
@@ -125,7 +207,7 @@ def parse_outputs(folder, list_sectors, post_processing, reference=None):
                     if sector in list_sectors:
                         d[f'{sector} - {kappa_name}'] = path
 
-            elif post_processing == 'sensitivity_durable':
+            elif post_processing == 'sensitivity_durable':  # parameter between energy services and nondurables
                 # Check if all parameters except kappa match their reference values
                 if all(reference[key] == current_values[key] for key in reference if key != 'rho'):
                     if rho < 0.2:
@@ -137,6 +219,88 @@ def parse_outputs(folder, list_sectors, post_processing, reference=None):
                     if sector in list_sectors:
                         d[f'{sector} - {rho_name}'] = path
     return d
+
+
+def parse_emissions(dict_paths, index_names, folderpath):
+    """Creates an output file which contains the variation of emissions for each country and each sector, in correct format.
+    Function is used for plots only."""
+    # Get emissions variation
+    concatenated_dfs = []
+    concatenated_dfs_absolute = []
+    concatenated_dfs_detail = []
+
+    def rename_index(L, country):
+        """Renames domestic country to 'Dom.' and the rest to 'RoW'"""
+        new_index = []
+        for i in L:
+            tmp = i.split('_absolute')[0]
+            if tmp == country:
+                new_index.append('Dom.')
+            else:
+                new_index.append('RoW')
+        return new_index
+
+    for key in dict_paths.keys():
+        equilibrium_output = EquilibriumOutput.from_excel(dict_paths[key])
+        df = equilibrium_output.emissions_hat
+        country = df.index[0]
+        index_values = key.split(' - ')
+        transformed_df = df.loc[country] - 1  # we transform relative variation to absolute variation
+        transformed_df = transformed_df.to_frame().T
+        transformed_df.index = pd.MultiIndex.from_tuples([tuple([country] + index_values)], names=['Aggregation'] + index_names)
+        concatenated_dfs.append(transformed_df)
+
+        emissions_absolute = df.loc[df.index.str.contains('_absolute')]
+
+        emissions_absolute.index = rename_index(emissions_absolute.index, country)
+        emissions_absolute.index = pd.MultiIndex.from_tuples([tuple([country] + index_values) + (idx,) for idx in emissions_absolute.index], names=['Aggregation'] + index_names + ['Country'])
+        # emissions_absolute.index = pd.MultiIndex.from_product([tuple([country] + index_values), emissions_absolute.index], names=['Aggregation'] + index_names + ['Country'])
+        concatenated_dfs_absolute.append(emissions_absolute)
+
+        emissions_detail = equilibrium_output.emissions_detail
+        emissions_detail.columns = pd.MultiIndex.from_tuples([(idx, index_values[0]) for idx in emissions_detail.columns], names=['Country', 'Sector'])
+        emissions_detail.index = pd.MultiIndex.from_tuples([tuple(idx.split('-')) for idx in emissions_detail.index], names=['Sector', 'Category'])
+        concatenated_dfs_detail.append(emissions_detail)
+    emissions_df = pd.concat(concatenated_dfs, axis=0)
+    emissions_df = emissions_df.rename(columns={
+        'emissions_IO': 'IO',
+        'emissions_CD': 'D+CD',
+        'emissions_ref': 'D+CD+CES',
+        'emissions_single': 'D'
+    })
+    emissions_df = emissions_df.reindex(['IO', 'D', 'D+CD', 'D+CD+CES'], axis=1)
+    emissions_df.columns.names = ['Effect']
+    emissions_df = emissions_df.stack()
+
+    emissions_absolute_df = pd.concat(concatenated_dfs_absolute, axis=0)
+    emissions_absolute_df = emissions_absolute_df.rename(columns={
+        'emissions_IO': 'IO',
+        'emissions_CD': 'D+CD',
+        'emissions_ref': 'D+CD+CES',
+        'emissions_single': 'D'
+    })
+    emissions_absolute_df = emissions_absolute_df.reindex(['IO', 'D', 'D+CD', 'D+CD+CES'], axis=1)
+    emissions_absolute_df = emissions_absolute_df.stack()
+    # rename last level of index from None to Effect
+    # the level is the last level
+    emissions_absolute_df.index = emissions_absolute_df.index.set_names('Effect', level=-1)
+
+    emissions_detail_df = pd.concat(concatenated_dfs_detail, axis=1)
+
+    if not (folderpath / Path('postprocess')).is_dir():
+        os.mkdir(folderpath / Path('postprocess'))
+    with pd.ExcelWriter(folderpath / Path('postprocess') / Path('emissions.xlsx')) as writer:
+        emissions_df.to_excel(
+            writer,
+            header=True,
+            index=True)
+
+    with pd.ExcelWriter(folderpath / Path('postprocess') / Path('emissions_absolute_df.xlsx')) as writer:
+        emissions_absolute_df.to_excel(
+            writer,
+            header=True,
+            index=True)
+    return emissions_df, emissions_absolute_df, emissions_detail_df
 
 def plot_domestic_emissions(series, country, folder_path, ratio_space=0.1, y_text_offset=0.15, y_label_categories = 0.05,
                    y_label_sector = 0.60, textwidth_heith=200, textwidth_width=202):
@@ -391,13 +555,15 @@ def domestic_emissions_barplot(df, save=None, colors=None, figsize=(7, 7), fonts
 
         # Append the date to the filename before the extension
         save_with_date = save.parent / (save.stem + f"_{d}" + filesuffix)
+    else:
+        save_with_date = None
 
     save_fig(fig, save=save_with_date)
 
 
 def absolute_emissions_barplot(df, sector, save=None, colors=None, figsize=(7, 7), fontsize_annotation=12, labelpad=30,
                                fontsize_big_xlabel=15, fontsize_small_xlabel=13, label_y_offset=20, annot_offset_neg=-15,
-                               rotation=0, y_max=None, y_min=None):
+                               rotation=0, y_max=None, y_min=None, filesuffix='.pdf'):
     """
     Plot emissions by sector and category
     --- Parameters ---
@@ -489,5 +655,139 @@ def absolute_emissions_barplot(df, sector, save=None, colors=None, figsize=(7, 7
 
     if save is not None:
         d = datetime.datetime.now().strftime("%m%d")
-        save = Path(save + f"_{sector}_{d}.pdf")
-    save_fig(fig, save=save)
+
+        # Ensure save is a Path object
+        if not isinstance(save, Path):
+            save = Path(save)
+
+        # Append the date to the filename before the extension
+        save_with_date = save.parent / (save.stem + f"_{sector}_{d}" + filesuffix)
+    else:
+        save_with_date = None
+    save_fig(fig, save=save_with_date)
+
+
+def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None, format_y=lambda y, _: '{:.1f}'.format(y), hline=True,
+                                display_title=True, rotation=0, save=None, filesuffix='.pdf', legend_loc='right', fontsize_big_xlabel=15, fontsize_small_xlabel=13):
+    """Displays the breakdown of emissions by sector and category"""
+    n_columns = int(len(df.columns))
+    y_max = df[df > 0].groupby([i for i in df.index.names if i != groupby]).sum().max().max() * 1.1
+    y_min = df[df < 0].groupby([i for i in df.index.names if i != groupby]).sum().min().min() * 1.1
+
+    top_categories_sets = [set(df[col].abs().nlargest(10).index) for col in df]
+    all_top_categories = set.union(*top_categories_sets)
+
+    others_positive_sum = df.apply(lambda col: col[(~col.index.isin(all_top_categories)) & (col > 0)].groupby('Category').sum())
+    others_positive_sum.index = pd.MultiIndex.from_product([['others_positive'], others_positive_sum.index], names=['Sector', 'Category'])
+    others_negative_sum = df.apply(lambda col: col[(~col.index.isin(all_top_categories)) & (col < 0)].groupby('Category').sum())
+    others_negative_sum.index = pd.MultiIndex.from_product([['others_negative'], others_negative_sum.index], names=['Sector', 'Category'])
+
+    palette = [
+    "#377EB8",  # Deep Sky Blue
+    "#FF7F00",  # Vivid Tangerine
+    "#4DAF4A",  # Grass Green
+    "#F781BF",  # Soft Pink
+    "#A65628",  # Saddle Brown
+    "#984EA3",  # Rich Lilac
+    "#999999",  # Light Gray
+    "#E41A1C",  # Crimson
+    "#DEDE00",  # Mustard
+    "#2B9AC8",  # Cerulean Blue
+    "#008080",  # Teal
+    "#333333",  # Dark Slate Gray
+    "#D95F02",  # Pumpkin Orange
+    "#56B4E9",  # Jade Green
+    "#808000",   # Olive Green
+    "#A6CEE3",  # Powder Blue
+    "#E69F00",  # Burnt Sienna
+    "#F0E442",  # Pale Lavender
+    "#FF00FF",  # Magenta
+    "#FFFF33"  # Lemon Yellow
+    ]
+
+
+    # Remark: there may be a bug if others_positive_sum or others_negative_sum is empty
+    df = pd.concat([df, others_positive_sum, others_negative_sum], axis=0)
+
+    # add others_positive_sum index to all_top_categories automatically from others_positive_sum.index
+
+    df = df.drop(index=df.index[~df.index.isin(all_top_categories.union(set(others_positive_sum.index).union(set(others_negative_sum.index))))])
+
+    color_list = colors if colors is not None else palette
+    color_dict = {k: v for k, v in zip(df.index.get_level_values('Sector').unique(), color_list)}
+
+    n_rows = 1
+    fig, axes = plt.subplots(n_rows, n_columns, figsize=figsize, sharex='all', sharey='all')
+    handles, labels = None, None
+    unique_handles = {}
+    for k in range(n_rows * n_columns):
+        column = k % n_columns
+        if n_rows * n_columns == 1:  # in this case, we have a single plot
+            ax = axes
+        else:
+            ax = axes[column]
+
+        try:
+            key = df.columns[k]
+            df_temp = df[key].sort_values(ascending=True).unstack(groupby)
+
+            column_colors = [color_dict.get(x, 'grey') for x in df_temp.columns]
+
+            df_temp.plot(ax=ax, kind='bar', stacked=True, linewidth=0, color=column_colors)
+
+            ax = format_ax_new(ax, format_y=format_y, xinteger=True)
+
+            # ax = format_ax(ax, format_y=format_y, ymin=0, xinteger=True)
+            ax.spines['left'].set_visible(False)
+            ax.set_ylim(ymax=y_max)
+            ax.set_ylim(ymin=y_min)
+            ax.set_xlabel('')
+
+            if hline:
+                ax.axhline(y=0)
+
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=rotation)
+            ax.tick_params(axis='both', which='major', labelsize=fontsize_small_xlabel)
+
+            title = key
+            if isinstance(key, tuple):
+                title = '{}-{}'.format(key[0], key[1])
+            if display_title:
+                ax.set_title(title, pad=-1.6, fontsize=fontsize_big_xlabel)
+            else:
+                ax.set_title('')
+
+            current_handles, current_labels = ax.get_legend_handles_labels()
+            for handle, label in zip(current_handles, current_labels):
+                # Update the unique handles dictionary with the latest handle for each label
+                unique_handles[label] = handle
+
+            # Remove the legend from the individual subplot
+            ax.get_legend().remove()
+
+        except IndexError:
+            ax.axis('off')
+
+        labels, handles = zip(*list(unique_handles.items()))
+
+        # Create the legend for the figure
+        if legend_loc == 'lower':
+            fig.legend(handles, labels, loc='lower center', frameon=False, ncol=3, bbox_to_anchor=(0.5, -0.1))
+        else:
+            fig.legend(handles, labels, loc='center left', frameon=False, ncol=1, bbox_to_anchor=(1, 0.5))
+        # Adjust the layout
+        plt.tight_layout()
+
+    if save is not None:
+        d = datetime.datetime.now().strftime("%m%d")
+
+        # Ensure save is a Path object
+        if not isinstance(save, Path):
+            save = Path(save)
+
+        # Append the date to the filename before the extension
+        save_with_date = save.parent / (save.stem + f"_{d}" + filesuffix)
+    else:
+        save_with_date = None
+    save_fig(fig, save=save_with_date)
+

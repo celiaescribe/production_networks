@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import logging
 from dataclasses import dataclass
-from utils import add_long_description, flatten_index, unflatten_index, unflatten_index_in_df, same_df
+from utils import add_long_description, flatten_index, unflatten_index_in_df, same_df
 
 
 DIRTY_ENERGY_SECTORS = ['Coal', 'Lignite', 'Petrol', 'Gas', 'Coke', 'Petro', 'FuelDist']  # those sectors are responsible for GHG emissions when they are burnt
