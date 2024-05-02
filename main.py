@@ -26,13 +26,13 @@ if __name__ == '__main__':
     uniform_shock = False
     new_consumer = False
     share_new_consumer = 0.5
-    efficiency = False
+    efficiency = True
 
     domestic_country = CODE_COUNTRY[country]
     filename = f"outputs/calib_{country}.xlsx"
 
     folder_date = datetime.datetime.now().strftime("%Y%m%d")
-    folder_to_save = Path(f'outputs/simulations_20240501')
+    folder_to_save = Path(f'outputs/simulations_{folder_date}')
     if not folder_to_save.is_dir():
         os.mkdir(folder_to_save)
 
@@ -59,22 +59,6 @@ if __name__ == '__main__':
                     li_hat = pd.Series(index=sectors.index, data=1)
 
                     betai_hat = process_shocks(col, shocks, uniform_shock, domestic_country, psi.columns, new_consumer)
-                    # Processing shocks
-                    # betai_hat = {
-                    #     'sector': process_shocks(col, shocks['sector'], uniform_shock, domestic_country, psi.columns,
-                    #                              new_consumer),
-                    #     'energy_durable': process_shocks(col, shocks['energy_durable'], uniform_shock, domestic_country,
-                    #                                      psi.columns, new_consumer),
-                    #     'nondurable_energyservices': process_shocks(col, shocks['nondurable_energyservices'], uniform_shock,
-                    #                                                 domestic_country, psi.columns, new_consumer),
-                    #     'sector_IO': process_shocks(col, shocks['sector_IO'], uniform_shock, domestic_country, psi.columns,
-                    #                                 new_consumer),
-                    #     'energy_durable_IO': process_shocks(col, shocks['energy_durable_IO'], uniform_shock, domestic_country,
-                    #                                         psi.columns, new_consumer),
-                    #     'nondurable_energyservices_IO': process_shocks(col, shocks['nondurable_energyservices_IO'],
-                    #                                                    uniform_shock, domestic_country, psi.columns,
-                    #                                                    new_consumer)
-                    # }
 
                     # Create a vector full of ones for efficiency shocks
                     a_efficiency = pd.Series(index=shocks['sector'].index, data=1).to_frame()  # efficiency vector
@@ -112,28 +96,15 @@ if __name__ == '__main__':
     else:  # we study efficiency rebound effects
         fileshocks = "data_deep/shocks_demand_09042024_efficiency.xlsx"
         shocks = read_file_shocks(fileshocks)
-        list_elasticities = [0.001, 0.5, 0.9]
+        list_elasticities = [0.1, 0.5, 0.9]
 
         for elasticity in list_elasticities:
 
             ki_hat = pd.Series(index=sectors.index, data=1)
             li_hat = pd.Series(index=sectors.index, data=1)
             col = 'efficiency'
-            betai_hat = {
-                'sector': process_shocks(col, shocks['sector'], uniform_shock, domestic_country, psi.columns,
-                                         new_consumer),
-                'energy_durable': process_shocks(col, shocks['energy_durable'], uniform_shock, domestic_country,
-                                                 psi.columns, new_consumer),
-                'nondurable_energyservices': process_shocks(col, shocks['nondurable_energyservices'], uniform_shock,
-                                                            domestic_country, psi.columns, new_consumer),
-                'sector_IO': process_shocks(col, shocks['sector_IO'], uniform_shock, domestic_country, psi.columns,
-                                            new_consumer),
-                'energy_durable_IO': process_shocks(col, shocks['energy_durable_IO'], uniform_shock, domestic_country,
-                                                    psi.columns, new_consumer),
-                'nondurable_energyservices_IO': process_shocks(col, shocks['nondurable_energyservices_IO'],
-                                                               uniform_shock, domestic_country, psi.columns,
-                                                               new_consumer)
-            }
+            betai_hat = process_shocks(col, shocks, uniform_shock, domestic_country, psi.columns, new_consumer)
+
 
             a_efficiency = pd.Series(index=betai_hat['sector'].index, data=1).to_frame()  # efficiency vector
             a_efficiency = a_efficiency.rename(columns={a_efficiency.columns[0]: domestic_country})
@@ -142,7 +113,7 @@ if __name__ == '__main__':
             a_efficiency.loc[ENERGY_SECTORS,domestic_country] = 1.069  # to match the same IO effect as in the other shock scenarios
 
             # Baseline calibration
-            theta, sigma, epsilon, delta, mu, nu, kappa, rho = 0.5, 0.9, 0.001, 0.9, 0.9, elasticity, 0.5, 0.9
+            theta, sigma, epsilon, delta, mu, nu, kappa, rho = 0.5, 0.9, 0.001, 0.9, 0.9, 0.001, 0.5, elasticity
             equilibrium_output = run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions, xsi, psi,
                                                  phi, costs_energy_final,
                                                  psi_energy, psi_non_energy, costs_durable_final, psi_durable,
