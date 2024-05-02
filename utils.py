@@ -8,14 +8,30 @@ from matplotlib.ticker import MaxNLocator
 from dataclasses import dataclass
 import os
 
+DURABLE_GOODS = [ 'FabMetal', 'Machine', 'Vehicle', 'TransOth', 'Repair', 'Electronic', 'Electrical',
+                  'FurnOth', 'ConstBuild', 'ConstCivil']
+NON_DURABLE_GOODS = ['Wheat', 'Maize', 'CerOth', 'Legume', 'Rice', 'Veget', 'Sugar', 'Tobac', 'Fibre', 'CropOth',
+                     'Grape', 'FruitNut', 'CropBev', 'SpicePhar', 'Seed', 'Cattle', 'Sheep', 'Pig', 'Poultry', 'AnimOth',
+                     'Forest', 'Fish', 'Crust', 'IronOres', 'UranOres', 'AluOres', 'CopperOres', 'GoldOres',
+                     'LedZinSilOres', 'NickelOres', 'TinOres', 'NonferOthOres', 'StoneSand', 'ChemFert', 'Salt',
+                     'OthServ', 'BeefMeat', 'SheepMeat', 'PorkMeat', 'PoultryMeat', 'MeatOth', 'FishProd', 'Cereal',
+                     'VegetProd', 'Fruit', 'FoodOth', 'Sweets', 'FatAnim', 'FatVeget', 'Dairy', 'Beverage',
+                     'TobacProd', 'Textile', 'Leather', 'Sawmill', 'Paper', 'Print', 'NFert', 'OthFert', 'ChemPetro',
+                     'ChemInorg', 'ChemOrg', 'Pharma', 'ChemOth', 'Rubber', 'Plastic', 'Clay', 'Ceramics', 'Cement', 'MinOth',
+                     'IronSteel', 'Alu', 'Copper', 'Gold', 'LedZinSil', 'Nickel', 'Tin', 'NonferOth', 'Water', 'Waste',
+                     'Recovery', 'TradeRep', 'Road', 'Rail', 'Pipe', 'WaterTrans', 'Air', 'Services', 'Post', 'Hospitality',
+                     'Publishing', 'Telecom', 'Info', 'Finance', 'Real', 'ProfSci', 'Admin', 'Public', 'Edu', 'Health',
+                     'Arts', 'Oth']
 
 @dataclass
 class EquilibriumOutput:
     """Class to save the outcome of the model."""
     pi_hat: pd.DataFrame
     yi_hat: pd.DataFrame
+    price_production: pd.DataFrame
     pi_imports_finaldemand: pd.DataFrame
     final_demand: pd.DataFrame
+    intermediate_demand: pd.DataFrame
     domar: pd.DataFrame
     labor_capital: pd.DataFrame
     emissions_hat: pd.DataFrame
@@ -28,8 +44,10 @@ class EquilibriumOutput:
             for current_df, sheet_name in [
                 (self.pi_hat, "pi_hat"),
                 (self.yi_hat, "yi_hat"),
+                (self.price_production, "price_production"),
                 (self.pi_imports_finaldemand, "pi_imports_finaldemand"),
                 (self.final_demand, "final_demand"),
+                (self.intermediate_demand, "intermediate_demand"),
                 (self.domar, "domar"),
                 (self.labor_capital, "labor_capital"),
                 (self.emissions_hat, "emissions_hat"),
@@ -42,7 +60,7 @@ class EquilibriumOutput:
                 # Copy the dataframe to avoid modifying the original one
                 df_to_write = current_df.copy()
                 # Add long description if the index has a "Sector" level
-                if "Sector" in current_df.index.names and sheet_name != "descriptions" and sheet_name != "emissions_detail":
+                if "Sector" in current_df.index.names and sheet_name != "descriptions" and sheet_name != "emissions_detail" and sheet_name != "intermediate_demand":
                     df_to_write = add_long_description(df_to_write, self.descriptions)
                 # Flatten the index
                 df_to_write.index = flatten_index(df_to_write.index)
@@ -64,10 +82,17 @@ class EquilibriumOutput:
                 pd.read_excel(xls, sheet_name="yi_hat", index_col=0)
                 .drop(columns="long_description"),
                 axis=0, level_names=["Country", "Sector"])
+            price_production = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="price_production", index_col=0)
+                .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"])
             pi_imports_finaldemand = pd.read_excel(xls, sheet_name="pi_imports_finaldemand", index_col=0).drop(columns="long_description")
             final_demand = unflatten_index_in_df(
                 pd.read_excel(xls, sheet_name="final_demand", index_col=0)
                 .drop(columns="long_description"),
+                axis=0, level_names=["Country", "Sector"])
+            intermediate_demand = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="intermediate_demand", index_col=0),
                 axis=0, level_names=["Country", "Sector"])
             domar = unflatten_index_in_df(
                 pd.read_excel(xls, sheet_name="domar", index_col=0)
@@ -85,7 +110,7 @@ class EquilibriumOutput:
             descriptions = pd.read_excel(xls, sheet_name="descriptions", index_col=0, header=None).squeeze()
             descriptions.index.name = "Sector"
             descriptions.name = 0
-        return cls(pi_hat, yi_hat, pi_imports_finaldemand, final_demand, domar, labor_capital, emissions_hat, emissions_detail, global_variables, descriptions)
+        return cls(pi_hat, yi_hat, price_production, pi_imports_finaldemand, final_demand, intermediate_demand, domar, labor_capital, emissions_hat, emissions_detail, global_variables, descriptions)
 
 def add_long_description(df, descriptions):
     "Add the long description of the sectors to the DataFrame"
@@ -138,6 +163,27 @@ def same_df(df1, df2):
     )
 
 
+def get_shock_adjustment(shocks, intervention, psi_durable, psi_non_durable, costs_energy_services_final):
+    """Estimates the shock parameters for sectors not concerned by the intervention. The adjustment is made so that the budget share equation remains satisfied."""
+    if intervention in ['food', 'combined2']:
+        tmp = shocks['sector_IO']
+        tmp.index.names = ['Sector']
+        tmp = tmp[intervention]
+        tmp = tmp[tmp != 1].dropna()  # we extract only non-unitary values
+        tmp_durable = tmp[tmp.index.isin(DURABLE_GOODS)]
+        tmp_non_durable = tmp[tmp.index.isin(NON_DURABLE_GOODS)]
+        if intervention == 'food':
+            adjustment_x = (1-(psi_non_durable.loc[tmp_non_durable.index,:].mul(tmp_non_durable, axis=0)).sum()) / (1 - psi_non_durable.loc[tmp_non_durable.index,:].sum())
+        else:
+            adjustment_x = (1-(psi_durable.loc[tmp_durable.index,:].mul(tmp_durable, axis=0)).sum()) / (1 - psi_durable.loc[tmp_durable.index,:].sum())
+    elif intervention in ['energy']:
+        tmp = shocks['energy_durable_IO']
+        tmp.index.names = ['Sector']
+        tmp = tmp[intervention]
+        tmp = tmp[tmp != 1].dropna()  # we extract only non-unitary values
+        adjustment_x = (1-(costs_energy_services_final.loc[tmp.index,:].mul(tmp, axis=0)).sum()) / (1 - costs_energy_services_final.loc[tmp.index,:].sum())
+    return adjustment_x
+
 def parse_outputs(folder, list_sectors, post_processing, configref=None):
     """List files from a given folder according to conditions, and create a dictionary containing the files and corresponding configuration names. The goal is to automate the process.
     folder: Path
@@ -151,8 +197,8 @@ def parse_outputs(folder, list_sectors, post_processing, configref=None):
     configref: dict
         Reference configuration. Default is None. If None, the reference configuration is {'theta': 0.5, 'sigma': 0.9, 'epsilon': 0.001, 'delta': 0.9, 'mu': 0.9, 'nu': 0.001, 'kappa': 0.5, 'rho': 0.95}
     """
-    assert post_processing in ['reference', 'sensitivity_energyservices', 'sensitivity_durable']
-    reference = {'theta': 0.5, 'sigma': 0.9, 'epsilon': 0.001, 'delta': 0.9, 'mu': 0.9, 'nu': 0.001, 'kappa': 0.5, 'rho': 0.95}
+    assert post_processing in ['reference', 'sensitivity_energyservices', 'sensitivity_durable', 'sensitivity_production']
+    reference = {'theta': 0.5, 'sigma': 0.9, 'epsilon': 0.001, 'delta': 0.9, 'mu': 0.9, 'nu': 0.001, 'kappa': 0.5, 'rho': 0.9}
     if configref is not None:
         assert isinstance(configref, dict)
         reference.update(configref)
@@ -208,16 +254,28 @@ def parse_outputs(folder, list_sectors, post_processing, configref=None):
                         d[f'{sector} - {kappa_name}'] = path
 
             elif post_processing == 'sensitivity_durable':  # parameter between energy services and nondurables
-                # Check if all parameters except kappa match their reference values
+                # Check if all parameters except rho match their reference values
                 if all(reference[key] == current_values[key] for key in reference if key != 'rho'):
                     if rho < 0.2:
-                        rho_name = 'Low'
+                        rho_name = 'Very Low'
                     elif rho < 0.9:
-                        rho_name = 'Ref'
+                        rho_name = 'Low'
                     else:
-                        rho_name = 'High'
+                        rho_name = 'Ref'
                     if sector in list_sectors:
                         d[f'{sector} - {rho_name}'] = path
+
+            elif post_processing == 'sensitivity_production':  # parameter between energy services and nondurables
+                # Check if all parameters except nu match their reference values
+                if all(reference[key] == current_values[key] for key in reference if key != 'nu'):
+                    if nu < 0.2:
+                        nu_name = 'Ref'
+                    elif nu < 0.9:
+                        nu_name = 'High'
+                    else:
+                        nu_name = 'Very High'
+                    if sector in list_sectors:
+                        d[f'{sector} - {nu_name}'] = path
     return d
 
 

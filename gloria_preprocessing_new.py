@@ -134,8 +134,8 @@ if __name__ == '__main__':
 
     def map_country_to_region(country):
         return region_mapping.get(country, country)
-    #
-    #
+
+
     # # Adding original labels to the data
     # T.columns = labels['io_lab']
     # T.index = labels['io_lab']
@@ -143,7 +143,7 @@ if __name__ == '__main__':
     # Y.index = labels['io_lab']
     # V.columns = labels['io_lab']
     # V.index = labels['va_lab'].dropna()
-    # # #
+    # #
     # Create vectors for industry and product labels
     industry_labs = labels[labels['io_lab'].str.contains("industry")]['io_lab']
     product_labs = labels[~labels['io_lab'].isin(industry_labs)]['io_lab']
@@ -151,7 +151,7 @@ if __name__ == '__main__':
     # Get rid of some countries with problematic names
     list_countries_drop = ['Yemen Arab Republic/Yemen', 'Yugoslavia/Serbia', 'Zambia', 'Zimbabwe', 'CSSR/Czech Republic',
                            'Ethiopia/DR Ethiopia', 'USSR/Russian Federation', 'Sudan/North Sudan', 'DR Yemen']
-    # # #
+    # #
     # # # Extracting the use matrix, final demand matrix, value added matrix, and satellite accounts
     # Z = T.loc[product_labs, industry_labs]  # use matrix
     # Y = Y.loc[product_labs]  # final demand matrix
@@ -228,25 +228,25 @@ if __name__ == '__main__':
     # Z.columns = [c.replace(' industry', '') for c in Z.columns]
     #
     TQ = pd.read_csv("GLORIA_MRIOs_57_2014/20230727_120secMother_AllCountries_002_TQ-Results_2014_057_Markup001(full).csv", header=None)  # satellite accounts, intermediate matrix
-    # YQ = pd.read_csv("GLORIA_MRIOs_57_2014/20230727_120secMother_AllCountries_002_YQ-Results_2014_057_Markup001(full).csv", header=None)  # satellite accounts, final demand
-    # commodity_prices = pd.read_csv(
-    #     "GLORIA_MRIOs_57_2014/GLORIA_MRIO_Loop059_part_IV_commodityprices/20240111_120secMother_AllCountries_002_Prices_2014_059_Markup001(full).csv", header=None)
-    # commodity_prices.columns = sectors['Sector_names']
+    YQ = pd.read_csv("GLORIA_MRIOs_57_2014/20230727_120secMother_AllCountries_002_YQ-Results_2014_057_Markup001(full).csv", header=None)  # satellite accounts, final demand
+    commodity_prices = pd.read_csv(
+        "GLORIA_MRIOs_57_2014/GLORIA_MRIO_Loop059_part_IV_commodityprices/20240111_120secMother_AllCountries_002_Prices_2014_059_Markup001(full).csv", header=None)
+    commodity_prices.columns = sectors['Sector_names']
     #
     # Adding labels to data
     TQ.columns = labels['io_lab']
     TQ.index = sat_labels['Sat_indicator'] + " - " + sat_labels['Sat_unit']
     #
-    # YQ.columns = labels['fd_lab'].dropna()
-    # YQ.index = sat_labels['Sat_indicator'] + " - " + sat_labels['Sat_unit']
-    #
-    # YQ.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in YQ.columns], names=['Country', 'Detail'])
-    # cols_to_drop = YQ.columns.get_level_values('Country').isin(list_countries_drop)
-    # cols_to_drop = YQ.columns[cols_to_drop]
-    # YQ = YQ.drop(columns=cols_to_drop)
-    # YQ.columns = YQ.columns.remove_unused_levels()
-    # YQ.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in YQ.columns])
-    # YQ = YQ.groupby(level=[0, 1], axis=1).sum()
+    YQ.columns = labels['fd_lab'].dropna()
+    YQ.index = sat_labels['Sat_indicator'] + " - " + sat_labels['Sat_unit']
+
+    YQ.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in YQ.columns], names=['Country', 'Detail'])
+    cols_to_drop = YQ.columns.get_level_values('Country').isin(list_countries_drop)
+    cols_to_drop = YQ.columns[cols_to_drop]
+    YQ = YQ.drop(columns=cols_to_drop)
+    YQ.columns = YQ.columns.remove_unused_levels()
+    YQ.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in YQ.columns])
+    YQ = YQ.groupby(level=[0, 1], axis=1).sum()
     #
     ZQ = TQ[industry_labs]  # satellite accounts
     ZQ.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in ZQ.columns], names=['Country', 'Industry'])
@@ -309,7 +309,7 @@ if __name__ == '__main__':
         return pd.MultiIndex.from_tuples(new_index)
 
     emissions_energy = emissions_detail[emissions_detail.columns[~emissions_detail.columns.str.contains('total')]]
-    # We calculate approximately the share of emissions associated to CO2 or CH4
+    # We calculate approximately the share of emissions associated to CO2 (excl_short_cycle, not org_short_cycle) or CH4 for total emissions for each sector
     emissions_total = emissions_detail[emissions_detail.columns[emissions_detail.columns.str.contains('total')]]
     emissions_total = emissions_total[
         emissions_total.columns[emissions_total.columns.str.contains('|'.join(['GHG', 'co2', 'ch4']))]]
@@ -350,7 +350,7 @@ if __name__ == '__main__':
 
     energy_related_emissions = pd.DataFrame(energy_related_emissions)
     energy_related_emissions = energy_related_emissions.fillna(0)  # for each gas (in columns), we have the share of energy-related emissions based on activity classification
-    # We calculate approximately overall the share of GHG emissions which can be associated to energy-related emissions
+    # We calculate approximately overall the share of GHG emissions which can be associated to energy-related emissions by using only co2 and ch4 as explained before
     energy_related_emissions = energy_related_emissions[['co2_excl_short_cycle_org_c', 'ch4']]
     energy_related_emissions = (energy_related_emissions * emissions_total).sum(axis=1)  # based on our approximation focusing only on co2 and ch4, we calculate the share of energy-related emissions for each sector
 
@@ -359,7 +359,8 @@ if __name__ == '__main__':
     # Approximation: final demand emissions is just CO2 emissions
     emissions_total_y = YQ.loc[YQ.index.str.contains('co2_excl_short_cycle_org'), :]
     emissions_total_y = emissions_total_y.loc[emissions_total_y.index.str.contains(system), :]
-    # we allocate emissions to consumption of a given sector. This is a bit arbitrary probably, notably for the distribution of gaseous fuels through mains
+    # we allocate emissions of final consumption to a given sector. This is a bit arbitrary probably, notably for the distribution of gaseous fuels through mains
+    # We assume that transport emissions are only petroleum, while the rest (housing ?) is gaseous fuels (while it could be petroleum)
     emissions_total_y = emissions_total_y.rename(index={
         f"'co2_excl_short_cycle_org_c_1A3b_noRES_{system}_consistent' - kilotonnes": 'Refined petroleum products',
         f"'co2_excl_short_cycle_org_c_1A4_{system}_consistent' - kilotonnes": 'Distribution of gaseous fuels through mains'  # this is a strong hypothesis, as many emissions from heating may come from other energy sources
@@ -369,7 +370,7 @@ if __name__ == '__main__':
     sectors_to_add = pd.Index([e.split(' - ')[1] for e in emissions_total_Z.index])
     sectors_to_add = sectors_to_add.difference(emissions_total_y.index)
     additional_rows = pd.DataFrame(0, index=sectors_to_add, columns=emissions_total_y.columns)
-    emissions_total_y = pd.concat([emissions_total_y, additional_rows], axis=0)  # we add other rows to match the shape of emissions_total_Z
+    emissions_total_y = pd.concat([emissions_total_y, additional_rows], axis=0)  # we add other rows to match the shape of emissions_total_Z, which will correspond to zero emissions
     emissions_total_y = emissions_total_y.stack().reset_index()
     emissions_total_y.columns = ['sector', 'country', f"GHG_total_{system}_consistent_ktco2eq"]
     emissions_total_y['index'] = emissions_total_y['country'] + ' - ' + emissions_total_y['sector']
