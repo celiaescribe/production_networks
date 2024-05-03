@@ -91,7 +91,7 @@ def run_simulation(config):
                                                                      share_GNE, domestic_country, descriptions,
                                                                      reference_parameters, config['new_consumer']['activated'],share)
 
-                                save_path = get_save_path(reference_parameters, domestic_country, s, config['uniform_shock'], efficiency=config['efficiency']['activated'], new_consumer=config['new_consumer']['activated'], share=share)
+                                save_path = get_save_path(reference_parameters, domestic_country, s, config['uniform_shock'], new_consumer=config['new_consumer']['activated'], share=share)
                                 equilibrium_output.to_excel(Path(folder_to_save) / Path(save_path))
                         else:
 
@@ -107,7 +107,7 @@ def run_simulation(config):
                                                                  reference_parameters, config['new_consumer']['activated'],
                                                                  config['new_consumer']['share'])
 
-                            save_path = get_save_path(reference_parameters, domestic_country, s, config['uniform_shock'], efficiency=config['efficiency']['activated'], new_consumer=config['new_consumer']['activated'])
+                            save_path = get_save_path(reference_parameters, domestic_country, s, config['uniform_shock'], new_consumer=config['new_consumer']['activated'])
                             equilibrium_output.to_excel(Path(folder_to_save) / Path(save_path))
 
 

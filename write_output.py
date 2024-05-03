@@ -26,7 +26,7 @@ import numpy as np
 This module includes all the functions used to parse the outputs of the model and create the plots.
 """
 
-def parse_outputs(folder, list_sectors, post_processing, configref=None):
+def parse_outputs(folder, list_sectors, post_processing, file_selection='reference', configref=None):
     """List files from a given folder according to conditions, and create a dictionary containing the files and corresponding configuration names. The goal is to automate the process.
     folder: Path
         Path to the folder containing the files
@@ -44,81 +44,79 @@ def parse_outputs(folder, list_sectors, post_processing, configref=None):
     if configref is not None:
         assert isinstance(configref, dict)
         reference.update(configref)
+
     d = {}
     # list files inside folder
     for path in folder.iterdir():
         if path.is_file() and path.suffix == '.xlsx':
+            file_name = path.stem
+            if file_selection == 'heterogeneous' and '_heterogeneous' not in file_name:
+                continue
+            elif file_selection == 'uniform' and '_uniform' not in file_name:
+                continue
+            elif file_selection is 'reference' and ('_heterogeneous' in file_name or '_uniform' in file_name):
+                continue
             config = path.name.split('.xlsx')[0].split('_')
-            domestic_country = config[0]
             sector = config[1]
-            for key in config[2:]:  # we get the different parameters from the configuration
-                if 'theta' in key:
-                    theta = float(key.split('theta')[1])
-                if 'sigma' in key:
-                    sigma = float(key.split('sigma')[1])
-                if 'epsilon' in key:
-                    epsilon = float(key.split('epsilon')[1])
-                if 'delta' in key:
-                    delta = float(key.split('delta')[1])
-                if 'mu' in key:
-                    mu = float(key.split('mu')[1])
-                if 'nu' in key:
-                    nu = float(key.split('nu')[1])
-                if 'kappa' in key:
-                    kappa = float(key.split('kappa')[1])
-                if 'rho' in key:
-                    rho = float(key.split('rho')[1])
-            current_values = {
-                'theta': theta,
-                'sigma': sigma,
-                'epsilon': epsilon,
-                'delta': delta,
-                'mu': mu,
-                'nu': nu,
-                'kappa': kappa,
-                'rho': rho
-            }
+            current_values = {}
+            allowed_keys = ['theta', 'sigma', 'epsilon', 'delta', 'mu', 'nu', 'kappa', 'rho']
+            share = None
+            if file_selection != 'uniform':
+                params = config[2:]
+            else:
+                params = config[2:-1]  # we remove the uniform specification in the end
+            for param in params:  # get configuration from file name
+                key = ''.join([char for char in param if char.isalpha()])
+                value = ''.join([char for char in param if char.isdigit() or char == '.'])
+                if key in allowed_keys:
+                    current_values[key] = float(value)
+                elif 'heterogeneous' in key:
+                    share = value
 
-            if post_processing == 'reference':
-                if all(reference[key] == current_values[key] for key in reference):
-                    if sector in list_sectors:
-                        d[sector] = path
-            elif post_processing == 'sensitivity_energyservices':  # parameter between energy and durables
-                # Check if all parameters except kappa match their reference values
-                if all(reference[key] == current_values[key] for key in reference if key != 'kappa'):
-                    if kappa < 0.2:
-                        kappa_name = 'Low'
-                    elif kappa < 0.9:
-                        kappa_name = 'Ref'
-                    else:
-                        kappa_name = 'High'
-                    if sector in list_sectors:
-                        d[f'{sector} - {kappa_name}'] = path
+            if file_selection == 'heterogeneous':
+                if sector in list_sectors:
+                    kappa_value = path.stem.split('kappa')[1].split('_')[0]
+                    d[f'{sector} - {share} - {kappa_value}'] = path
+            else:
+                if post_processing == 'reference':
+                    if all(reference[key] == current_values[key] for key in reference):
+                        if sector in list_sectors:
+                            d[sector] = path
+                elif post_processing == 'sensitivity_energyservices':  # parameter between energy and durables
+                    # Check if all parameters except kappa match their reference values
+                    if all(reference[key] == current_values[key] for key in reference if key != 'kappa'):
+                        kappa_name = 'Low' if current_values['kappa'] < 0.2 else 'Ref' if current_values[
+                                                                                              'kappa'] < 0.9 else 'High'
+                        if sector in list_sectors:
+                            d[f'{sector} - {kappa_name}'] = path
 
-            elif post_processing == 'sensitivity_durable':  # parameter between energy services and nondurables
-                # Check if all parameters except rho match their reference values
-                if all(reference[key] == current_values[key] for key in reference if key != 'rho'):
-                    if rho < 0.2:
-                        rho_name = 'Very Low'
-                    elif rho < 0.9:
-                        rho_name = 'Low'
-                    else:
-                        rho_name = 'Ref'
-                    if sector in list_sectors:
-                        d[f'{sector} - {rho_name}'] = path
+                elif post_processing == 'sensitivity_durable':  # parameter between energy services and nondurables
+                    # Check if all parameters except rho match their reference values
+                    if all(reference[key] == current_values[key] for key in reference if key != 'rho'):
+                        rho_name = 'Very Low' if current_values['kappa'] < 0.2 else 'Low' if current_values[
+                                                                                              'kappa'] < 0.9 else 'Ref'
+                        if sector in list_sectors:
+                            d[f'{sector} - {rho_name}'] = path
 
-            elif post_processing == 'sensitivity_production':  # parameter between energy services and nondurables
-                # Check if all parameters except nu match their reference values
-                if all(reference[key] == current_values[key] for key in reference if key != 'nu'):
-                    if nu < 0.2:
-                        nu_name = 'Ref'
-                    elif nu < 0.9:
-                        nu_name = 'High'
-                    else:
-                        nu_name = 'Very High'
-                    if sector in list_sectors:
-                        d[f'{sector} - {nu_name}'] = path
+                elif post_processing == 'sensitivity_production':  # parameter between energy services and nondurables
+                    # Check if all parameters except nu match their reference values
+                    if all(reference[key] == current_values[key] for key in reference if key != 'nu'):
+                        nu_name = 'Ref' if current_values['kappa'] < 0.2 else 'High' if current_values[
+                                                                                              'kappa'] < 0.9 else 'Very High'
+                        if sector in list_sectors:
+                            d[f'{sector} - {nu_name}'] = path
+
     return d
+
+
+def post_processing_new_consumer(d, param='kappa'):
+    """Add the value of param to the key of the dictionary. The function is used for plots only."""
+    new_d = {}
+    for key in d.keys():
+        value = d[key].stem.split(param)[1].split('_')[0]
+        new_d[f'{key} - {value}'] = d[key]
+    return new_d
+
 
 
 def parse_emissions(dict_paths, index_names, folderpath):
