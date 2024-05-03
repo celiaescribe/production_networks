@@ -1,3 +1,5 @@
+# This function is used to calibrate the model, using the IO table, value added and final use inputs.
+
 import pandas as pd
 import numpy as np
 import logging
@@ -213,22 +215,29 @@ class CalibOutput:
                 and self.descriptions.equals(other.descriptions)
         )
 
-    def add_final_consumer(self, country, share_new_consumer=0.5):
+    def add_final_consumer(self, country):
         """This function doubles the final consumer from the given country, to have two consumers. """
         for attr in ['xsi', 'psi', 'phi', 'costs_energy_final', 'psi_energy', 'psi_non_energy', 'costs_durable_final', 'psi_durable',
                      'psi_non_durable', 'costs_energy_services_final', 'final_use_dirty_energy']:
             df = getattr(self, attr)
             df = df.assign(new_consumer = df[country])
             df = df.rename({country: f'{country}1', 'new_consumer': f'{country}2'}, axis=1)
-            if attr == 'phi':  # we have to adjust the share of final demand between the two consumers
-                df[f'{country}2'] = share_new_consumer * df[f'{country}2']
-                df[f'{country}1'] = (1 - share_new_consumer) * df[f'{country}1']
+            # if attr == 'phi':  # we have to adjust the share of final demand between the two consumers
+            #     df[f'{country}2'] = share_new_consumer * df[f'{country}2']
+            #     df[f'{country}1'] = (1 - share_new_consumer) * df[f'{country}1']
             setattr(self, attr, df)
+
+
+def add_final_consumer_share(phi, country, share_new_consumer=0.5):
+    phi_share = phi.copy()
+    phi_share[f'{country}2'] = share_new_consumer * phi_share[f'{country}2']
+    phi_share[f'{country}1'] = (1 - share_new_consumer) * phi_share[f'{country}1']
+    return phi_share
 
 
 def process_excel(file_path):
     """Read the excel file and process it to get the different dataframes, including IO table, value added and final use."""
-    logging.info("Reading data")
+    logging.info("Reading inputs")
     df = pd.read_excel(file_path, index_col=0, header=0)
     # first row should be the second level of the multiindex for columns
     df.columns = pd.MultiIndex.from_arrays([df.columns, df.iloc[0]])
@@ -405,7 +414,7 @@ def get_main_stats(df, final_use):
 
     # assert Leontieff.mul(phi.mul(pyi, axis=0)[col], axis=0).sum(axis=0)
 
-    sectors['va'] = sectors['pyi'] - sectors['pmXi']  # we redefine va from other values, to ensure that data is correctly balanced
+    sectors['va'] = sectors['pyi'] - sectors['pmXi']  # we redefine va from other values, to ensure that inputs is correctly balanced
 
     sectors['gamma'] = value_added.loc['wli_over_vhi']
 

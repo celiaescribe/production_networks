@@ -1,3 +1,18 @@
+# This file is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Original author Célia Escribe <celia.escribe@gmail.com>
+
 import pandas as pd
 import country_converter as coco
 # import pycountry
@@ -10,8 +25,10 @@ import gc
 from pathlib import Path
 import argparse
 
+"""Preprocessing module of the model
+This module extracts aggregated inputs from the GLORIA database. In particular, it extracts input-output, final demand, value-added and emissions tables.
+"""
 
-# This function extracts aggregated data from the GLORIA database. In particular, it extracts input-output, final demand, value-added and emissions tables.
 
 def split_string(s):
     """Function to split the string and exclude the parentheses content"""
@@ -59,12 +76,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
     country = args.country  # we select the config we are interested in
 
-    # # Read CSV files
-    # T = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_T-Results_2014_057_Markup001(full).csv", header=None)  # transaction matrix
-    # V = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_V-Results_2014_057_Markup001(full).csv", header=None)  # value added matrix
-    # Y = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_Y-Results_2014_057_Markup001(full).csv", header=None)  # final demand matrix
+    # Read CSV files
+    T = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_T-Results_2014_057_Markup001(full).csv", header=None)  # transaction matrix
+    V = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_V-Results_2014_057_Markup001(full).csv", header=None)  # value added matrix
+    Y = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_Y-Results_2014_057_Markup001(full).csv", header=None)  # final demand matrix
 
-    #
+
 
     # Read Excel sheets
     region = pd.read_excel("GLORIA_MRIOs_57_2014/GLORIA_ReadMe_057.xlsx", sheet_name="Regions")
@@ -136,13 +153,13 @@ if __name__ == '__main__':
         return region_mapping.get(country, country)
 
 
-    # # Adding original labels to the data
-    # T.columns = labels['io_lab']
-    # T.index = labels['io_lab']
-    # Y.columns = labels['fd_lab'].dropna()
-    # Y.index = labels['io_lab']
-    # V.columns = labels['io_lab']
-    # V.index = labels['va_lab'].dropna()
+    # Adding original labels to the inputs
+    T.columns = labels['io_lab']
+    T.index = labels['io_lab']
+    Y.columns = labels['fd_lab'].dropna()
+    Y.index = labels['io_lab']
+    V.columns = labels['io_lab']
+    V.index = labels['va_lab'].dropna()
     # #
     # Create vectors for industry and product labels
     industry_labs = labels[labels['io_lab'].str.contains("industry")]['io_lab']
@@ -152,88 +169,88 @@ if __name__ == '__main__':
     list_countries_drop = ['Yemen Arab Republic/Yemen', 'Yugoslavia/Serbia', 'Zambia', 'Zimbabwe', 'CSSR/Czech Republic',
                            'Ethiopia/DR Ethiopia', 'USSR/Russian Federation', 'Sudan/North Sudan', 'DR Yemen']
     # #
-    # # # Extracting the use matrix, final demand matrix, value added matrix, and satellite accounts
-    # Z = T.loc[product_labs, industry_labs]  # use matrix
-    # Y = Y.loc[product_labs]  # final demand matrix
-    # V = V[industry_labs]  # value added matrix
-    #
-    # V.index = pd.MultiIndex.from_tuples([split_string_new(i) for i in V.index], names=['Country', 'Detail'])
-    # V.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in V.columns], names=['Country', 'Industry'])
-    # rows_to_drop = V.index.get_level_values('Country').isin(list_countries_drop)
-    # rows_to_drop = V.index[rows_to_drop]
-    #
-    # # Filter the MultiIndex for columns
-    # cols_to_drop = V.columns.get_level_values('Country').isin(list_countries_drop)
-    # cols_to_drop = V.columns[cols_to_drop]
-    #
-    # # Drop the specified rows and columns
-    # V = V.drop(index=rows_to_drop, columns=cols_to_drop)
-    # V.index = V.index.remove_unused_levels()
-    # V.columns = V.columns.remove_unused_levels()
-    #
-    # # Apply the mapping to the index and columns
-    # V.index = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in V.index])
-    # V.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in V.columns])
-    #
-    # # Group by regions, and sum the values
-    # V = V.groupby(level=[0, 1], axis=0).sum()
-    # V = V.groupby(level=[0, 1], axis=1).sum()
-    #
-    # V.index = V.index.droplevel(0)  # we drop the country level
-    # V = V.groupby(level=0, axis=0).sum()  # we sum all the rows by level of value-added, as this is a block-diagonal matrix
-    #
-    # # V.index = [' - '.join(idx) for idx in V.index]
-    # V.columns = [' - '.join(col) for col in V.columns]
-    # V.columns = [c.replace(' industry', '') for c in V.columns]
-    #
-    # Y.index = pd.MultiIndex.from_tuples([split_string_new(i) for i in Y.index], names=['Country', 'Industry'])
-    # Y.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in Y.columns], names=['Country', 'Detail'])
-    #
-    # rows_to_drop = Y.index.get_level_values('Country').isin(list_countries_drop)
-    # rows_to_drop = Y.index[rows_to_drop]
-    # cols_to_drop = Y.columns.get_level_values('Country').isin(list_countries_drop)
-    # cols_to_drop = Y.columns[cols_to_drop]
-    #
-    # Y = Y.drop(index=rows_to_drop, columns=cols_to_drop)
-    # Y.index = Y.index.remove_unused_levels()
-    # Y.columns = Y.columns.remove_unused_levels()
-    #
-    # # Apply the mapping to the index and columns
-    # Y.index = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in Y.index])  # rename countries
-    # Y.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in Y.columns])  # rename countries
-    # Y = Y.groupby(level=[0, 1], axis=0).sum()  # sum for similar countries
-    # Y = Y.groupby(level=[0, 1], axis=1).sum()
-    # Y.index = [' - '.join(idx) for idx in Y.index]  # rename index
-    # Y.columns = [' - '.join(col) for col in Y.columns]
-    # Y.index = [replace_last_occurrence(i, ' product', '') for i in Y.index]
-    #
-    # Z.index = pd.MultiIndex.from_tuples([split_string_new(i) for i in Z.index], names=['Country', 'Industry'])
-    # Z.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in Z.columns], names=['Country', 'Industry'])
-    #
-    # rows_to_drop = Z.index.get_level_values('Country').isin(list_countries_drop)
-    # rows_to_drop = Z.index[rows_to_drop]
-    # cols_to_drop = Z.columns.get_level_values('Country').isin(list_countries_drop)
-    # cols_to_drop = Z.columns[cols_to_drop]
-    # Z = Z.drop(index=rows_to_drop, columns=cols_to_drop)
-    # Z.index = Z.index.remove_unused_levels()
-    # Z.columns = Z.columns.remove_unused_levels()
-    #
-    # Z.index = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in Z.index])
-    # Z.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in Z.columns])
-    # Z = Z.groupby(level=[0, 1], axis=0).sum()
-    # Z = Z.groupby(level=[0, 1], axis=1).sum()
-    # Z.index = [' - '.join(idx) for idx in Z.index]
-    # Z.columns = [' - '.join(col) for col in Z.columns]
-    # Z.index = [replace_last_occurrence(i, ' product', '') for i in Z.index]
-    # Z.columns = [c.replace(' industry', '') for c in Z.columns]
-    #
+    # # Extracting the use matrix, final demand matrix, value added matrix, and satellite accounts
+    Z = T.loc[product_labs, industry_labs]  # use matrix
+    Y = Y.loc[product_labs]  # final demand matrix
+    V = V[industry_labs]  # value added matrix
+
+    V.index = pd.MultiIndex.from_tuples([split_string_new(i) for i in V.index], names=['Country', 'Detail'])
+    V.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in V.columns], names=['Country', 'Industry'])
+    rows_to_drop = V.index.get_level_values('Country').isin(list_countries_drop)
+    rows_to_drop = V.index[rows_to_drop]
+
+    # Filter the MultiIndex for columns
+    cols_to_drop = V.columns.get_level_values('Country').isin(list_countries_drop)
+    cols_to_drop = V.columns[cols_to_drop]
+
+    # Drop the specified rows and columns
+    V = V.drop(index=rows_to_drop, columns=cols_to_drop)
+    V.index = V.index.remove_unused_levels()
+    V.columns = V.columns.remove_unused_levels()
+
+    # Apply the mapping to the index and columns
+    V.index = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in V.index])
+    V.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in V.columns])
+
+    # Group by regions, and sum the values
+    V = V.groupby(level=[0, 1], axis=0).sum()
+    V = V.groupby(level=[0, 1], axis=1).sum()
+
+    V.index = V.index.droplevel(0)  # we drop the country level
+    V = V.groupby(level=0, axis=0).sum()  # we sum all the rows by level of value-added, as this is a block-diagonal matrix
+
+    # V.index = [' - '.join(idx) for idx in V.index]
+    V.columns = [' - '.join(col) for col in V.columns]
+    V.columns = [c.replace(' industry', '') for c in V.columns]
+
+    Y.index = pd.MultiIndex.from_tuples([split_string_new(i) for i in Y.index], names=['Country', 'Industry'])
+    Y.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in Y.columns], names=['Country', 'Detail'])
+
+    rows_to_drop = Y.index.get_level_values('Country').isin(list_countries_drop)
+    rows_to_drop = Y.index[rows_to_drop]
+    cols_to_drop = Y.columns.get_level_values('Country').isin(list_countries_drop)
+    cols_to_drop = Y.columns[cols_to_drop]
+
+    Y = Y.drop(index=rows_to_drop, columns=cols_to_drop)
+    Y.index = Y.index.remove_unused_levels()
+    Y.columns = Y.columns.remove_unused_levels()
+
+    # Apply the mapping to the index and columns
+    Y.index = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in Y.index])  # rename countries
+    Y.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in Y.columns])  # rename countries
+    Y = Y.groupby(level=[0, 1], axis=0).sum()  # sum for similar countries
+    Y = Y.groupby(level=[0, 1], axis=1).sum()
+    Y.index = [' - '.join(idx) for idx in Y.index]  # rename index
+    Y.columns = [' - '.join(col) for col in Y.columns]
+    Y.index = [replace_last_occurrence(i, ' product', '') for i in Y.index]
+
+    Z.index = pd.MultiIndex.from_tuples([split_string_new(i) for i in Z.index], names=['Country', 'Industry'])
+    Z.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in Z.columns], names=['Country', 'Industry'])
+
+    rows_to_drop = Z.index.get_level_values('Country').isin(list_countries_drop)
+    rows_to_drop = Z.index[rows_to_drop]
+    cols_to_drop = Z.columns.get_level_values('Country').isin(list_countries_drop)
+    cols_to_drop = Z.columns[cols_to_drop]
+    Z = Z.drop(index=rows_to_drop, columns=cols_to_drop)
+    Z.index = Z.index.remove_unused_levels()
+    Z.columns = Z.columns.remove_unused_levels()
+
+    Z.index = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in Z.index])
+    Z.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in Z.columns])
+    Z = Z.groupby(level=[0, 1], axis=0).sum()
+    Z = Z.groupby(level=[0, 1], axis=1).sum()
+    Z.index = [' - '.join(idx) for idx in Z.index]
+    Z.columns = [' - '.join(col) for col in Z.columns]
+    Z.index = [replace_last_occurrence(i, ' product', '') for i in Z.index]
+    Z.columns = [c.replace(' industry', '') for c in Z.columns]
+
     TQ = pd.read_csv("GLORIA_MRIOs_57_2014/20230727_120secMother_AllCountries_002_TQ-Results_2014_057_Markup001(full).csv", header=None)  # satellite accounts, intermediate matrix
     YQ = pd.read_csv("GLORIA_MRIOs_57_2014/20230727_120secMother_AllCountries_002_YQ-Results_2014_057_Markup001(full).csv", header=None)  # satellite accounts, final demand
     commodity_prices = pd.read_csv(
         "GLORIA_MRIOs_57_2014/GLORIA_MRIO_Loop059_part_IV_commodityprices/20240111_120secMother_AllCountries_002_Prices_2014_059_Markup001(full).csv", header=None)
     commodity_prices.columns = sectors['Sector_names']
     #
-    # Adding labels to data
+    # Adding labels to inputs
     TQ.columns = labels['io_lab']
     TQ.index = sat_labels['Sat_indicator'] + " - " + sat_labels['Sat_unit']
     #
@@ -322,7 +339,7 @@ if __name__ == '__main__':
     # TODO: cette approximation pose en partie problème pour les secteurs agricoles, où les émissions ne vont pas forcément être du méthane, mais peuvent être aussi du N2O, qui n'est donc pas capté ici.
     # TODO: Mais cependant, cela n'a pas l'air de poser trop de problème pour mes calculs et estimation finale du rôle des émissions process-related qui sont bien cohérentes.
 
-    # Remark: we choose to focus on CO2 and CH4 for two reasons. The first is that since we need the activity classification data, and we only have that for each gas (and not for total GHG-eq), we need to focus on specific gases.
+    # Remark: we choose to focus on CO2 and CH4 for two reasons. The first is that since we need the activity classification inputs, and we only have that for each gas (and not for total GHG-eq), we need to focus on specific gases.
     # Second, estimating the share of emissions linked to a specific gas requires to be able to convert CO2-eq emissions into CO2 emissions. This is difficult. By just assuming that emissions are either CO2 or CH4, we avoid this problem.
     # CO2 emissions are directly in the good unit, and the rest is assumed to be all methane. Of course, this may lead to a somehow biased estimate for the origin of the emissions (process- or energ-related).
 

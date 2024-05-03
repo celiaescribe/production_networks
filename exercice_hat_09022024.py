@@ -32,7 +32,7 @@ def residuals(lvec, li_hat,ki_hat, betai_hat,theta,sigma,epsilon,delta,mu,sector
     assert Domestic.index.equals(Domestic.columns), "Domestic index and columns are not the same while they should be"
     # We create a price dataframe with the same dimensions as the Domestic dataframe
     # With the following syntax, we assume that pi_hat follows the order of Domestic columns. Important !!
-    # price_df = pd.concat([pd.DataFrame(columns=Domestic.columns, data=pi_hat.reshape(1, -1))] * len(Domestic.index), axis=0, ignore_index=True)
+    # price_df = pd.concat([pd.DataFrame(columns=Domestic.columns, inputs=pi_hat.reshape(1, -1))] * len(Domestic.index), axis=0, ignore_index=True)
     # price_df.index = Domestic.index
 
     # Price for imports nest
@@ -179,7 +179,7 @@ def residuals_wrapper(lvec):
 
 
 filename = "outputs/calib_france.xlsx"
-fileshocks = "data_deep/shocks_interventions_large_demand.xlsx"
+fileshocks = "inputs/shocks_interventions_large_demand.xlsx"
 
 theta,sigma,epsilon,delta,mu = 1,1,1,1,1
 

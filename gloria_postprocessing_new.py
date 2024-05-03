@@ -1,4 +1,17 @@
-## Copyright: Célia Escribe
+# This file is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# Original author Célia Escribe <celia.escribe@gmail.com>
 
 import pandas as pd
 import country_converter as coco
@@ -10,7 +23,10 @@ import re
 import gc
 from pathlib import Path
 
-# This file performs some postprocessing on the input-output table, the final demand table, the value-added table, and the emissions tables.
+"""Postprocessing module
+This module performs some postprocessing on the input-output table, the final demand table, the value-added table, and the emissions tables.
+"""
+
 
 
 country_dict = {
@@ -99,12 +115,12 @@ def sort_columns(columns, country, nb=2):
 if __name__ == '__main__':
     # ############### POST PROCESSING ######################
 
-    # Define data path
+    # Define inputs path
     data_path = "GLORIA_MRIOs_57_2014"
 
     country = 'europe'
 
-    # Read the data
+    # Read the inputs
     Z = pd.read_pickle(f"{data_path}/Z_{country}_RoW_2014.pkl")
     Y = pd.read_pickle(f"{data_path}/Y_{country}_RoW_2014.pkl")
     V = pd.read_pickle(f"{data_path}/V_{country}_RoW_2014.pkl")

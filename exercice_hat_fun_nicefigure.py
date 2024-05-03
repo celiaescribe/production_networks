@@ -83,21 +83,20 @@ def process_shocks(col, shocks, uniform_shock, domestic_country, countries, new_
             betai_hat = betai_hat.rename(columns={betai_hat.columns[0]: domestic_country})
 
         if uniform_shock:  # Preferences shocks are shared across countries
-            if 'IO' in key:  # in this case, we can only use the same data for all countries
+            if 'IO' in key:  # in this case, we can only use the same inputs for all countries
                 betai_hat = pd.concat([betai_hat] * len(countries), axis=1)
             else:
                 betai_hat_ROW = shocks[f'{key}_ROW']
                 betai_hat_ROW = betai_hat_ROW[col]  # get specific shocks
                 betai_hat_ROW = betai_hat_ROW.to_frame()
-                if new_consumer:
-                    betai_hat_ROW = betai_hat_ROW.rename(columns={betai_hat_ROW.columns[0]: f'{domestic_country}1'})
+                if new_consumer:  # we have to differentiate between the new consumer from domestic country, and the RoW country
+                    betai_hat = pd.concat([betai_hat]*(len(countries)-1) + [betai_hat_ROW], axis=1)
                 else:
-                    betai_hat_ROW = betai_hat_ROW.rename(columns={betai_hat_ROW.columns[0]: domestic_country})
-                betai_hat = pd.concat([betai_hat, betai_hat_ROW], axis=1)
+                    betai_hat = pd.concat([betai_hat, betai_hat_ROW], axis=1)
             betai_hat.columns = countries
 
         else:  # Preferences shocks are specific to domestic country
-            betai_hat = betai_hat.reindex(countries, axis=1, fill_value=1.0)
+            betai_hat = betai_hat.reindex(countries, axis=1, fill_value=1.0)  # we assume that the new consumer does not experience any preference shock
 
         betai_hat.index.names = ['Sector']
         betai_hat.columns.names = ['Country']
@@ -416,7 +415,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
 
         share_labor = sectors['share_labor']
         share_capital = sectors['share_capital']
-        # labor_shock = pd.Series(index=['EUR', 'ROW'], data=[1,1])  # labor supply shock
+        # labor_shock = pd.Series(index=['EUR', 'ROW'], inputs=[1,1])  # labor supply shock
         res5 = 1 - (share_labor * li_hat).groupby(level="Country").sum()
         res6 = 1 - (share_capital * ki_hat).groupby(level="Country").sum()
 
@@ -525,7 +524,7 @@ def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsil
 def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy,
                     costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy,
                     Gamma, Leontieff, Domestic, Delta, sectors_dirty_energy,
-                    final_use_dirty_energy, share_GNE, domestic_country, descriptions, theta, sigma, epsilon, delta, mu, nu, kappa, rho,
+                    final_use_dirty_energy, share_GNE, domestic_country, descriptions, reference_parameters,
                     new_consumer, share_new_consumer):
     """Solves the equilibrium, under different settings."""
 
@@ -535,6 +534,8 @@ def run_equilibrium(li_hat, ki_hat, betai_hat, a_efficiency, sectors, emissions,
     else:
         C = xsi.shape[1]
         C_consumer = C
+
+    theta, sigma, epsilon, delta, mu, nu, kappa, rho = reference_parameters['theta'], reference_parameters['sigma'], reference_parameters['epsilon'], reference_parameters['delta'], reference_parameters['mu'], reference_parameters['nu'], reference_parameters['kappa'], reference_parameters['rho']
 
     N = len(sectors)
 
@@ -688,7 +689,7 @@ def get_emissions_breakdown(yi_hat, intermediate_demand_energy_dirty, final_dema
 
 
 def get_emissions_total(total_variation_emissions, emissions):
-    """Computes absolute variations of emissions, based on relative variations, and data on world emissions."""
+    """Computes absolute variations of emissions, based on relative variations, and inputs on world emissions."""
     tmp = total_variation_emissions.copy()  # relative variation of domestic emissions
     world_emissions = emissions[['total_sectors', 'final_demand']].sum().sum()
     total_variation_emissions.loc['total'] = (total_variation_emissions.squeeze() * (
@@ -768,7 +769,7 @@ if __name__ == '__main__':
     country = 'europe'
     domestic_country = code_country[country]
     filename = f"outputs/calib_{country}.xlsx"
-    fileshocks = "data_deep/shocks_demand_09042024.xlsx"
+    fileshocks = "inputs/shocks_demand_09042024.xlsx"
     uniform_shock = False
     new_consumer = False
     share_new_consumer = 0.5
@@ -829,12 +830,12 @@ if __name__ == '__main__':
 
 
     # # Efficiency shocks
-    # ki_hat = pd.Series(index=sectors.index, data=1)
-    # li_hat = pd.Series(index=sectors.index, data=1)
+    # ki_hat = pd.Series(index=sectors.index, inputs=1)
+    # li_hat = pd.Series(index=sectors.index, inputs=1)
     # for key in betai_hat.keys():
     #     betai_hat[key] = betai_hat[key].applymap(lambda x:1)  # we only assume 1 values everywhere
     #
-    # a_efficiency = pd.Series(index=betai_hat['sector'].index, data=1).to_frame()  # efficiency vector
+    # a_efficiency = pd.Series(index=betai_hat['sector'].index, inputs=1).to_frame()  # efficiency vector
     # a_efficiency = a_efficiency.rename(columns={a_efficiency.columns[0]: domestic_country})
     # a_efficiency = a_efficiency.reindex(psi.columns, axis=1, fill_value=1.0)
     # a_efficiency.index.names = ['Sector']
@@ -853,12 +854,12 @@ if __name__ == '__main__':
     #
     # # Labor supply shocks
     # li_hat.loc[li_hat.index.get_level_values('Country') == 'EUR'] = 0.96
-    # betai_hat = pd.Series(index=demand_shocks.index, data=1).to_frame()  # efficiency vector
+    # betai_hat = pd.Series(index=demand_shocks.index, inputs=1).to_frame()  # efficiency vector
     # betai_hat = betai_hat.rename(columns={betai_hat.columns[0]: domestic_country})
     # betai_hat = betai_hat.reindex(psi.columns, axis=1, fill_value=1.0)
     # betai_hat.index.names = ['Sector']
     # betai_hat.columns.names = ['Country']
-    # a_efficiency = pd.Series(index=demand_shocks.index, data=1).to_frame()  # efficiency vector
+    # a_efficiency = pd.Series(index=demand_shocks.index, inputs=1).to_frame()  # efficiency vector
     # a_efficiency = a_efficiency.rename(columns={a_efficiency.columns[0]: domestic_country})
     # a_efficiency = a_efficiency.reindex(psi.columns, axis=1, fill_value=1.0)
     # a_efficiency.index.names = ['Sector']
