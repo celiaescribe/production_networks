@@ -46,7 +46,12 @@ COLORS_DICT = {
     "others_positive": "#E69F00",  # Burnt Sienna
     "WaterTrans": "#F0E442",  # Pale Lavender
     "Air": "#FF00FF",  # Magenta
-    "Veget": "#FFFF33"  # Lemon Yellow
+    "Veget": "#FFFF33",  # Lemon Yellow
+    "VegetProd": "#4DAF4A",  # Lemon Yellow
+    "Gas": "#A65628",  # Lemon Yellow
+    "Ceramics": "#008080",  # Lemon Yellow
+    "FishProd": "#984EA3",
+    "Coal": "#FFFF33"
 }
 
 
@@ -61,7 +66,7 @@ TRANSFORM_LEGEND = {
     "Road": "Road Transport",
     "Petro": "Petroleum Products",
     "IronSteel": "Iron and Steel",
-    "FuelDist": "Gas",
+    "FuelDist": "Gas Distribution",
     "ConstCivil": "Civil Construction",
     "FinalDemand": "Households Fossil Fuels Consumption",
     "Legume": "Growing Leguminous",
@@ -69,9 +74,17 @@ TRANSFORM_LEGEND = {
     "others_positive": "Other Sectors",
     "WaterTrans": "Water Transport",
     "Air": "Air Transport",
-    "Veget": "Vegetable Products",
+    "Veget": "Growing Vegetables",
+    "VegetProd": "Vegetable Products",
+    "CerOth": "Growing Cereals",
+    "FoodOth": "Food Products",
+    "Gas": "Gas extraction",
     "food": "Food shock",
     "energy": "Energy shock",
+    "IO": "Input-Output",
+    "D": "Demand",
+    "D+CD": "Cobb-Douglas",
+    "D+CD+CES": "CES"
 }
 
 def parse_outputs(folder, list_sectors, post_processing, file_selection='reference', configref=None):
@@ -440,7 +453,7 @@ def save_fig(fig, save=None, bbox_inches='tight'):
 # Function to create the plot
 def domestic_emissions_barplot(df, save=None, colors=None, figsize=(7, 7), fontsize_annotation=12, labelpad=30,
                                fontsize_big_xlabel=15, fontsize_small_xlabel=13, annot_offset_neg=-15, rotation=0, first_level_index='Sector',
-                               second_level_index='Effect', filesuffix = '.pdf'):
+                               second_level_index='Effect', filesuffix = '.pdf', dict_legend=None):
     """
     Plot emissions by sector and category
     --- Parameters ---
@@ -481,6 +494,15 @@ def domestic_emissions_barplot(df, save=None, colors=None, figsize=(7, 7), fonts
         ax.xaxis.set_tick_params(which=u'both', length=0)
         ax.yaxis.set_tick_params(which=u'both', length=0)
         ax.tick_params(axis='x', which='major', labelsize=fontsize_small_xlabel, rotation=rotation)
+
+        # Retrieve current tick positions and labels for customization
+        tick_positions = ax.get_xticks()
+        tick_labels = [dict_legend.get(label.get_text(), label.get_text()) if dict_legend is not None else label for label in ax.get_xticklabels()]
+
+        # Set the custom tick positions and labels
+        ax.set_xticks(tick_positions)  # This fixes the ticks to their current positions
+        ax.set_xticklabels(tick_labels)  # Apply the new labels
+
         # Annotate bars
         for bar in bars:
             height = bar.get_height()
@@ -497,7 +519,8 @@ def domestic_emissions_barplot(df, save=None, colors=None, figsize=(7, 7), fonts
         ax.spines['right'].set_visible(False)
         ax.yaxis.set_major_locator(plt.MaxNLocator(nbins=1, prune='upper'))
         ax.axhline(y=0, color='black', linewidth=2)
-        ax.set_xlabel(sector, labelpad=labelpad,
+        sector_name = sector if dict_legend is None else (dict_legend[sector] if sector in dict_legend.keys() else sector)
+        ax.set_xlabel(sector_name, labelpad=labelpad,
                       fontsize=fontsize_big_xlabel)  # labelpad is the space between the xlabel and the plot.
 
         ax.xaxis.set_label_position('top')
@@ -525,7 +548,7 @@ def domestic_emissions_barplot(df, save=None, colors=None, figsize=(7, 7), fonts
 
 def absolute_emissions_barplot(df, sector, save=None, colors=None, figsize=(7, 7), fontsize_annotation=12, labelpad=30,
                                fontsize_big_xlabel=15, fontsize_small_xlabel=13, label_y_offset=20, annot_offset_neg=-15,
-                               rotation=0, y_max=None, y_min=None, filesuffix='.pdf'):
+                               rotation=0, y_max=None, y_min=None, dict_legend=None, filesuffix='.pdf'):
     """
     Plot emissions by sector and category
     --- Parameters ---
@@ -583,7 +606,8 @@ def absolute_emissions_barplot(df, sector, save=None, colors=None, figsize=(7, 7
         ax.spines['top'].set_visible(False)
         ax.yaxis.set_major_locator(plt.MaxNLocator(nbins=1, prune='upper'))
         ax.axhline(y=0, color='black', linewidth=2)
-        ax.set_xlabel(effect, labelpad=labelpad,
+        effect_name = effect if dict_legend is None else (dict_legend[effect] if effect in dict_legend.keys() else effect)
+        ax.set_xlabel(effect_name, labelpad=labelpad,
                       fontsize=fontsize_big_xlabel)  # labelpad is the space between the xlabel and the plot.
 
         if y_max is not None:
@@ -629,9 +653,9 @@ def absolute_emissions_barplot(df, sector, save=None, colors=None, figsize=(7, 7
     save_fig(fig, save=save_with_date)
 
 
-def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None, format_y=lambda y, _: '{:.1f}MtCO2'.format(y), hline=True,
+def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', format_y=lambda y, _: '{:.1f} %'.format(y), hline=True,
                                 display_title=True, rotation=0, save=None, filesuffix='.pdf', legend_loc='right', fontsize_big_xlabel=15,
-                                fontsize_small_xlabel=13, dict_legend=None):
+                                fontsize_small_xlabel=13, fontsize_legend_labels=13, dict_legend=None):
     """Displays the breakdown of emissions by sector and category"""
     n_columns = int(len(df.columns))
     y_max = df[df > 0].groupby([i for i in df.index.names if i != groupby]).sum().max().max() * 1.1
@@ -675,7 +699,10 @@ def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None,
             df_temp.plot(ax=ax, kind='bar', stacked=True, linewidth=0, color=column_colors)
 
             ax = format_ax_new(ax, format_y=format_y, xinteger=True)
-            ax.set_yticks(np.arange(np.floor(y_min), np.ceil(y_max) + 0.5, 0.5))
+            if (y_max > 0.6) or (y_min < -0.6):
+                ax.set_yticks(np.arange(np.floor(y_min), np.ceil(y_max) + 0.5, 0.5))
+            else:
+                ax.set_yticks(np.arange(y_min, y_max + 0.02, 0.02))
 
             # ax = format_ax(ax, format_y=format_y, ymin=0, xinteger=True)
             ax.spines['left'].set_visible(False)
@@ -684,7 +711,7 @@ def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None,
             ax.set_xlabel('')
 
             if hline:
-                ax.axhline(y=0)
+                ax.axhline(y=0, c='black')
 
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=rotation)
             ax.tick_params(axis='both', which='major', labelsize=fontsize_small_xlabel)
@@ -710,13 +737,14 @@ def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None,
 
         labels, handles = zip(*list(unique_handles.items()))
         if dict_legend is not None:
+            labels = [dict_legend.get(e, e) for e in labels]
             labels = [dict_legend[e] if e in dict_legend.keys() else e for e in labels]
 
         # Create the legend for the figure
         if legend_loc == 'lower':
-            fig.legend(handles, labels, loc='lower center', frameon=False, ncol=3, bbox_to_anchor=(0.5, -0.1))
+            fig.legend(handles, labels, loc='lower center', frameon=False, ncol=3, bbox_to_anchor=(0.5, -0.1), fontsize=fontsize_legend_labels)
         else:
-            fig.legend(handles, labels, loc='center left', frameon=False, ncol=1, bbox_to_anchor=(1, 0.5))
+            fig.legend(handles, labels, loc='center left', frameon=False, ncol=1, bbox_to_anchor=(1, 0.5), fontsize=fontsize_legend_labels)
         # Adjust the layout
         plt.tight_layout()
 

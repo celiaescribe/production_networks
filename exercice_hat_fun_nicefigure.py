@@ -649,7 +649,7 @@ def get_emissions_hat(yi_hat, intermediate_demand, final_demand, sectors_dirty_e
                 1 - emissions['share_energy_related'])  # variation of emissions related to processes
     final_demand_energy = final_demand.loc[final_demand.index.get_level_values('Sector').isin(DIRTY_ENERGY_SECTORS), :]
     total_variation_emissions = (emissions['share_emissions_total_sectors'] * (
-                variation_emissions_energy + variation_emissions_process)).groupby('Country').sum()
+                variation_emissions_energy + variation_emissions_process)).groupby('Country').sum()  # aggregated variation per country
     final_demand_energy = (final_demand_energy * final_use_dirty_energy).sum(
         axis=0)  # average variation of final demand of dirty energy
     # For final demand, we only consider the share of total emissions, not differentiated by fossil fuel
