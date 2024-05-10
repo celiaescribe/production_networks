@@ -168,7 +168,7 @@ class OptimizationContext:
     def residuals_wrapper(self, lvec):
         # Call the original function but only return the first output
         res, *_ = residuals(lvec, self.li_hat, self.ki_hat, self.betai_hat, self.a_efficiency, self.theta, self.sigma, self.epsilon, self.delta,
-                            self.mu, self.nu, self.kappa, self.rho, self.sectors, self.xsi, self.psi, self.phi, self.costs_energy_final, self.psi_energy, self.psi_non_energy,
+                            self.mu, self.nu, self.kappa, self.rho, self.sectors, self.xsi, self.psi, self.phi, self.psi_energy, self.psi_non_energy,
                             self.costs_durable_final, self.psi_durable, self.psi_non_durable, self.costs_energy_services_final, self.Omega, self.costs_energy,
                             self.Omega_energy, self.Omega_non_energy, self.Domestic, self.Delta,
                             self.share_GNE, singlefactor=self.singlefactor, domestic_country=self.domestic_country, new_consumer=self.new_consumer)
@@ -184,7 +184,7 @@ class OptimizationContext:
         residual = (self.residuals_wrapper(lvec_sol.x) ** 2).sum()
         logging.info(f"Method: {method:10s}, Time: {t_m:5.1f}, Residual: {residual:10.2e}")
         res, output = residuals(lvec_sol.x, self.li_hat, self.ki_hat, self.betai_hat, self.a_efficiency, self.theta, self.sigma, self.epsilon,
-                                self.delta, self.mu, self.nu, self.kappa, self.rho, self.sectors, self.xsi, self.psi, self.phi, self.costs_energy_final, self.psi_energy, self.psi_non_energy,
+                                self.delta, self.mu, self.nu, self.kappa, self.rho, self.sectors, self.xsi, self.psi, self.phi, self.psi_energy, self.psi_non_energy,
                                 self.costs_durable_final, self.psi_durable, self.psi_non_durable, self.costs_energy_services_final, self.Omega, self.costs_energy,
                                 self.Omega_energy, self.Omega_non_energy, self.Domestic, self.Delta,
                                 self.share_GNE, singlefactor=self.singlefactor, domestic_country=self.domestic_country,
@@ -202,7 +202,7 @@ class OptimizationContext:
         raise ValueError("All methods failed.")
 
 
-def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsilon, delta, mu, nu, kappa, rho, sectors, xsi, psi, phi, costs_energy_final, psi_energy,
+def residuals(lvec, li_hat, ki_hat, betai_hat, a_efficiency, theta, sigma, epsilon, delta, mu, nu, kappa, rho, sectors, xsi, psi, phi, psi_energy,
               psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy,
               Omega_energy, Omega_non_energy, Domestic, Delta, share_GNE, singlefactor='specific', domestic_country = 'FRA',
               new_consumer=False):
@@ -713,8 +713,10 @@ def variation_emission(output_dict, betai_hat, emissions, Leontieff, Gamma, phi,
 
     # For the input-output channel, we only consider some of the preference shocks, to avoid counting income rebound effect
     total_final_demand_variation = betai_hat['sector_IO'] * betai_energydurable_hat_concat * betai_nondurableenergyservices_hat_concat  # we consider variations across all nests to characterize total final variation
-    total_variation_emissions_io = input_output_calculation(total_final_demand_variation, Leontieff, Gamma, phi, sectors, sectors_dirty_energy, final_use_dirty_energy, emissions, new_consumer, domestic_country, share_new_consumer)
+    total_variation_emissions_io, emissions_breakdown_io = input_output_calculation(total_final_demand_variation, Leontieff, Gamma, phi, sectors, sectors_dirty_energy, final_use_dirty_energy, emissions, new_consumer, domestic_country, share_new_consumer)
     total_variation_emissions_io = total_variation_emissions_io.to_frame().rename(columns={0: f'emissions_IO'})
+    emissions_breakdown_io.columns = [f'{idx}_IO' for idx in emissions_breakdown_io.columns]
+    emissions_detail_df.append(emissions_breakdown_io)
     absolute_emissions_io = get_emissions_total(total_variation_emissions_io, emissions)
     total_variation_emissions_io = pd.concat([total_variation_emissions_io, absolute_emissions_io.to_frame().rename(columns={0: f'emissions_IO'})], axis=0)
     results = pd.concat([results, total_variation_emissions_io], axis=1)
@@ -756,7 +758,7 @@ def input_output_calculation(betai_hat, Leontieff, Gamma, phi, sectors, sectors_
     intermediate_demand_hat.columns = Gamma.columns
     variation_emissions, emissions_breakdown = get_emissions_hat(yi_hat, intermediate_demand_hat, final_demand, sectors_dirty_energy, final_use_dirty_energy, emissions,
                                             new_consumer, country=domestic_country, share_new_consumer=share_new_consumer)
-    return variation_emissions
+    return variation_emissions, emissions_breakdown
 
 
 if __name__ == '__main__':

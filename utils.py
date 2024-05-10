@@ -190,7 +190,7 @@ def load_config(config_file):
         return json.load(f)
 
 
-def get_save_path(reference_parameters, country, s, uniform, new_consumer, share=0):
+def get_save_path(reference_parameters, country, s, uniform, new_consumer, labor=False, share=0):
     """Create the path to save the results of the model.
     Args:
         reference_parameters: dict, parameters of the model
@@ -211,5 +211,9 @@ def get_save_path(reference_parameters, country, s, uniform, new_consumer, share
     else:
         c = ''
         share = ''
-    path = f"{country}_{s}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}_rho{rho}{u}{c}{share}.xlsx"
+    if labor:
+        l = '_labor'
+    else:
+        l = ''
+    path = f"{country}_{s}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}_rho{rho}{u}{c}{share}{l}.xlsx"
     return path

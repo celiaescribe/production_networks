@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 
 from calibrate import add_final_consumer_share
 from exercice_hat_fun_nicefigure import CalibOutput, read_file_shocks, process_shocks, run_equilibrium
@@ -49,7 +50,6 @@ def run_simulation(config):
     # nu: elasticity between energy and non-energy intermediate inputs
     # kappa: elasticity between energy and durable goods
     # rho: elasticity between energy services and non-durable goods
-    reference_parameters = config['reference_parameters']
 
     if config['sensitivity']['activated']:  # we do a sensitivity analysis
         for param in config['sensitivity']['parameter'].keys():
@@ -74,6 +74,7 @@ def run_simulation(config):
                         if config['efficiency']['activated']:
                             a_efficiency.loc[ENERGY_SECTORS, domestic_country] = config['efficiency']['value']  # to match the same IO effect as in the other shock scenarios
 
+                        reference_parameters = deepcopy(config['reference_parameters'])
                         reference_parameters[param] = elasticity
 
                         if config['new_consumer']['activated']:

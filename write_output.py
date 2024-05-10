@@ -26,6 +26,54 @@ import numpy as np
 This module includes all the functions used to parse the outputs of the model and create the plots.
 """
 
+COLORS_DICT = {
+    "Power": "#377EB8",  # Deep Sky Blue
+    "Pig": "#FF7F00",  # Vivid Tangerine
+    "Cattle": "#4DAF4A",  # Grass Green
+    "FruitNut": "#F781BF",  # Soft Pink
+    "BeefMeat": "#A65628",  # Saddle Brown
+    "CerOth": "#984EA3",  # Rich Lilac
+    "FoodOth": "#999999",  # Light Gray
+    "AnimOth": "#E41A1C",  # Crimson
+    "Road": "#D2B55B",  # Autumn Gold
+    "IronSteel": "#2B9AC8",  # Cerulean Blue
+    "ConstCivil": "#008080",  # Teal
+    "FuelDist": "#333333",  # Dark Slate Gray
+    "Petro": "#D95F02",  # Pumpkin Orange
+    "FinalDemand": "#56B4E9",  # Jade Green
+    "Legume": "#808000",  # Olive Green
+    "others_negative": "#A6CEE3",  # Powder Blue
+    "others_positive": "#E69F00",  # Burnt Sienna
+    "WaterTrans": "#F0E442",  # Pale Lavender
+    "Air": "#FF00FF",  # Magenta
+    "Veget": "#FFFF33"  # Lemon Yellow
+}
+
+
+TRANSFORM_LEGEND = {
+    "Cattle": "Raising Cattle",
+    "Pig": "Raising Pig",
+    "FruitNut": "Growing Fruits",
+    "Power": "Power",
+    "BeefMeat": "Beef Meat",
+    "FoodPth": "Food Products",
+    "AnimOth": "Raising of Animals",
+    "Road": "Road Transport",
+    "Petro": "Petroleum Products",
+    "IronSteel": "Iron and Steel",
+    "FuelDist": "Gas",
+    "ConstCivil": "Civil Construction",
+    "FinalDemand": "Households Fossil Fuels Consumption",
+    "Legume": "Growing Leguminous",
+    "others_negative": "Other Sectors",
+    "others_positive": "Other Sectors",
+    "WaterTrans": "Water Transport",
+    "Air": "Air Transport",
+    "Veget": "Vegetable Products",
+    "food": "Food shock",
+    "energy": "Energy shock",
+}
+
 def parse_outputs(folder, list_sectors, post_processing, file_selection='reference', configref=None):
     """List files from a given folder according to conditions, and create a dictionary containing the files and corresponding configuration names. The goal is to automate the process.
     folder: Path
@@ -93,16 +141,16 @@ def parse_outputs(folder, list_sectors, post_processing, file_selection='referen
                 elif post_processing == 'sensitivity_durable':  # parameter between energy services and nondurables
                     # Check if all parameters except rho match their reference values
                     if all(reference[key] == current_values[key] for key in reference if key != 'rho'):
-                        rho_name = 'Very Low' if current_values['kappa'] < 0.2 else 'Low' if current_values[
-                                                                                              'kappa'] < 0.9 else 'Ref'
+                        rho_name = 'Very Low' if current_values['rho'] < 0.2 else 'Low' if current_values[
+                                                                                              'rho'] < 0.9 else 'Ref'
                         if sector in list_sectors:
                             d[f'{sector} - {rho_name}'] = path
 
                 elif post_processing == 'sensitivity_production':  # parameter between energy services and nondurables
                     # Check if all parameters except nu match their reference values
                     if all(reference[key] == current_values[key] for key in reference if key != 'nu'):
-                        nu_name = 'Ref' if current_values['kappa'] < 0.2 else 'High' if current_values[
-                                                                                              'kappa'] < 0.9 else 'Very High'
+                        nu_name = 'Ref' if current_values['nu'] < 0.2 else 'High' if current_values[
+                                                                                              'nu'] < 0.9 else 'Very High'
                         if sector in list_sectors:
                             d[f'{sector} - {nu_name}'] = path
 
@@ -160,24 +208,40 @@ def parse_emissions(dict_paths, index_names, folderpath):
         emissions_detail.index = pd.MultiIndex.from_tuples([tuple(idx.split('-')) for idx in emissions_detail.index], names=['Sector', 'Category'])
         concatenated_dfs_detail.append(emissions_detail)
     emissions_df = pd.concat(concatenated_dfs, axis=0)
-    emissions_df = emissions_df.rename(columns={
-        'emissions_IO': 'IO',
-        'emissions_CD': 'D+CD',
-        'emissions_ref': 'D+CD+CES',
-        'emissions_single': 'D'
-    })
-    emissions_df = emissions_df.reindex(['IO', 'D', 'D+CD', 'D+CD+CES'], axis=1)
+    if 'emissions_single' in emissions_df.columns:
+        emissions_df = emissions_df.rename(columns={
+            'emissions_IO': 'IO',
+            'emissions_CD': 'D+CD',
+            'emissions_ref': 'D+CD+CES',
+            'emissions_single': 'D'
+        })
+        emissions_df = emissions_df.reindex(['IO', 'D', 'D+CD', 'D+CD+CES'], axis=1)
+    else:
+        emissions_df = emissions_df.rename(columns={
+            'emissions_IO': 'IO',
+            'emissions_CD': 'CD',
+            'emissions_ref': 'CD+CES'
+        })
+        emissions_df = emissions_df.reindex(['IO', 'CD', 'CD+CES'], axis=1)
     emissions_df.columns.names = ['Effect']
     emissions_df = emissions_df.stack()
 
     emissions_absolute_df = pd.concat(concatenated_dfs_absolute, axis=0)
-    emissions_absolute_df = emissions_absolute_df.rename(columns={
-        'emissions_IO': 'IO',
-        'emissions_CD': 'D+CD',
-        'emissions_ref': 'D+CD+CES',
-        'emissions_single': 'D'
-    })
-    emissions_absolute_df = emissions_absolute_df.reindex(['IO', 'D', 'D+CD', 'D+CD+CES'], axis=1)
+    if 'emissions_single' in emissions_absolute_df.columns:
+        emissions_absolute_df = emissions_absolute_df.rename(columns={
+            'emissions_IO': 'IO',
+            'emissions_CD': 'D+CD',
+            'emissions_ref': 'D+CD+CES',
+            'emissions_single': 'D'
+        })
+        emissions_absolute_df = emissions_absolute_df.reindex(['IO', 'D', 'D+CD', 'D+CD+CES'], axis=1)
+    else:
+        emissions_absolute_df = emissions_absolute_df.rename(columns={
+            'emissions_IO': 'IO',
+            'emissions_CD': 'CD',
+            'emissions_ref': 'CD+CES'
+        })
+        emissions_absolute_df = emissions_absolute_df.reindex(['IO', 'CD', 'CD+CES'], axis=1)
     emissions_absolute_df = emissions_absolute_df.stack()
     # rename last level of index from None to Effect
     # the level is the last level
@@ -565,8 +629,9 @@ def absolute_emissions_barplot(df, sector, save=None, colors=None, figsize=(7, 7
     save_fig(fig, save=save_with_date)
 
 
-def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None, format_y=lambda y, _: '{:.1f}'.format(y), hline=True,
-                                display_title=True, rotation=0, save=None, filesuffix='.pdf', legend_loc='right', fontsize_big_xlabel=15, fontsize_small_xlabel=13):
+def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None, format_y=lambda y, _: '{:.1f}MtCO2'.format(y), hline=True,
+                                display_title=True, rotation=0, save=None, filesuffix='.pdf', legend_loc='right', fontsize_big_xlabel=15,
+                                fontsize_small_xlabel=13, dict_legend=None):
     """Displays the breakdown of emissions by sector and category"""
     n_columns = int(len(df.columns))
     y_max = df[df > 0].groupby([i for i in df.index.names if i != groupby]).sum().max().max() * 1.1
@@ -580,29 +645,6 @@ def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None,
     others_negative_sum = df.apply(lambda col: col[(~col.index.isin(all_top_categories)) & (col < 0)].groupby('Category').sum())
     others_negative_sum.index = pd.MultiIndex.from_product([['others_negative'], others_negative_sum.index], names=['Sector', 'Category'])
 
-    palette = [
-    "#377EB8",  # Deep Sky Blue
-    "#FF7F00",  # Vivid Tangerine
-    "#4DAF4A",  # Grass Green
-    "#F781BF",  # Soft Pink
-    "#A65628",  # Saddle Brown
-    "#984EA3",  # Rich Lilac
-    "#999999",  # Light Gray
-    "#E41A1C",  # Crimson
-    "#DEDE00",  # Mustard
-    "#2B9AC8",  # Cerulean Blue
-    "#008080",  # Teal
-    "#333333",  # Dark Slate Gray
-    "#D95F02",  # Pumpkin Orange
-    "#56B4E9",  # Jade Green
-    "#808000",   # Olive Green
-    "#A6CEE3",  # Powder Blue
-    "#E69F00",  # Burnt Sienna
-    "#F0E442",  # Pale Lavender
-    "#FF00FF",  # Magenta
-    "#FFFF33"  # Lemon Yellow
-    ]
-
 
     # Remark: there may be a bug if others_positive_sum or others_negative_sum is empty
     df = pd.concat([df, others_positive_sum, others_negative_sum], axis=0)
@@ -611,8 +653,7 @@ def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None,
 
     df = df.drop(index=df.index[~df.index.isin(all_top_categories.union(set(others_positive_sum.index).union(set(others_negative_sum.index))))])
 
-    color_list = colors if colors is not None else palette
-    color_dict = {k: v for k, v in zip(df.index.get_level_values('Sector').unique(), color_list)}
+    color_dict = {k: COLORS_DICT[k] if k in COLORS_DICT else "#333333" for k in df.index.get_level_values('Sector').unique()}
 
     n_rows = 1
     fig, axes = plt.subplots(n_rows, n_columns, figsize=figsize, sharex='all', sharey='all')
@@ -634,6 +675,7 @@ def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None,
             df_temp.plot(ax=ax, kind='bar', stacked=True, linewidth=0, color=column_colors)
 
             ax = format_ax_new(ax, format_y=format_y, xinteger=True)
+            ax.set_yticks(np.arange(np.floor(y_min), np.ceil(y_max) + 0.5, 0.5))
 
             # ax = format_ax(ax, format_y=format_y, ymin=0, xinteger=True)
             ax.spines['left'].set_visible(False)
@@ -647,7 +689,7 @@ def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None,
             plt.setp(ax.xaxis.get_majorticklabels(), rotation=rotation)
             ax.tick_params(axis='both', which='major', labelsize=fontsize_small_xlabel)
 
-            title = key
+            title = key if dict_legend is None else (dict_legend[key] if key in dict_legend.keys() else key)
             if isinstance(key, tuple):
                 title = '{}-{}'.format(key[0], key[1])
             if display_title:
@@ -667,6 +709,8 @@ def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', colors=None,
             ax.axis('off')
 
         labels, handles = zip(*list(unique_handles.items()))
+        if dict_legend is not None:
+            labels = [dict_legend[e] if e in dict_legend.keys() else e for e in labels]
 
         # Create the legend for the figure
         if legend_loc == 'lower':
