@@ -1,4 +1,5 @@
 import os
+from copy import deepcopy
 
 import pandas as pd
 import numpy as np
@@ -400,7 +401,7 @@ def residuals_labor(lvec, ki_hat, betai_hat, alpha_hat, a_efficiency, theta, sig
 
 def run_equilibrium_labor(ki_hat, betai_hat, alpha_hat, a_efficiency, sectors, emissions, xsi, psi, phi, psi_energy,
                     costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy,
-                    Gamma, Leontieff, Domestic, Delta, sectors_dirty_energy,
+                    Gamma, Leontieff, Ghosh, Domestic, Delta, sectors_dirty_energy,
                     final_use_dirty_energy, share_GNE, domestic_country, descriptions, reference_parameters):
     """Solves the equilibrium, under different settings."""
 
@@ -499,12 +500,14 @@ def run_simulation_labor(config):
     if config['new_consumer']['activated']:
         calib.add_final_consumer(country=domestic_country)
 
-    sectors, emissions, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.phi, calib.costs_energy_final, calib.psi_energy, calib.psi_non_energy, calib.costs_durable_final, calib.psi_durable, calib.psi_non_durable, calib.costs_energy_services_final, calib.Omega, calib.costs_energy, calib.Omega_energy, calib.Omega_non_energy, calib.Gamma, calib.Leontieff, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
+    sectors, emissions, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Ghosh, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.phi, calib.costs_energy_final, calib.psi_energy, calib.psi_non_energy, calib.costs_durable_final, calib.psi_durable, calib.psi_non_durable, calib.costs_energy_services_final, calib.Omega, calib.costs_energy, calib.Omega_energy, calib.Omega_non_energy, calib.Gamma, calib.Leontieff, calib.Ghosh, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
 
     shocks = read_file_shocks(config['fileshocks'])
 
     alpha_hat = pd.Series({'EUR': config['alpha_shock']['EUR'], 'ROW': config['alpha_shock']['ROW']})
     alpha_hat.index.names = ['Country']
+    if config['uniform_shock']:  # we apply a uniform shock
+        alpha_hat['ROW'] = alpha_hat['EUR']
 
     # Baseline calibration
     # theta: elasticity between labor/capital and intermediate inputs
@@ -546,7 +549,7 @@ def run_simulation_labor(config):
                                                                    phi, psi_energy, costs_durable_final, psi_durable,
                                                              psi_non_durable,
                                                              costs_energy_services_final, Omega, costs_energy, Omega_energy,
-                                                             Omega_non_energy, Gamma, Leontieff,
+                                                             Omega_non_energy, Gamma, Leontieff, Ghosh,
                                                              Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy,
                                                              share_GNE, domestic_country, descriptions,
                                                              reference_parameters)
@@ -561,5 +564,5 @@ if __name__ == '__main__':
     parser.add_argument('--config', type=str, default='config_labor.json', help="Path to the json configuration file.")
     args = parser.parse_args()
 
-    config = load_config(args.config)
+    config = deepcopy(load_config(args.config))
     run_simulation_labor(config)

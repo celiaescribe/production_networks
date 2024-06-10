@@ -7,10 +7,10 @@
   },
   "fileshocks": "inputs/shocks_demand_07052024_labor.xlsx",
   "alpha_shock": {
-    "EUR": 1.026,
-    "ROW": 1
+    "EUR": 1.027,
+    "ROW": 1.0
   },
-  "uniform_shock": false,
+  "uniform_shock": true,
   "new_consumer": {
     "activated": false,
     "share": [0.5]

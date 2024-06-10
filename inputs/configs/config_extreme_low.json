@@ -1,0 +1,30 @@
+{
+  "country": "europe",
+  "shocks": ["food", "energy"],
+  "efficiency": {
+    "activated": false,
+    "value": 1.069
+  },
+  "fileshocks": "inputs/shocks_demand_09042024.xlsx",
+  "uniform_shock": false,
+  "new_consumer": {
+    "activated": false,
+    "share": [0.5]
+  },
+  "reference_parameters": {
+    "theta": 0.05,
+    "sigma": 0.05,
+    "epsilon": 0.05,
+    "delta": 0.05,
+    "mu": 0.05,
+    "nu": 0.05,
+    "kappa": 0.05,
+    "rho": 0.05
+  },
+  "sensitivity": {
+    "activated": true,
+    "parameter": {
+            "kappa": [0.05]
+    }
+  }
+}

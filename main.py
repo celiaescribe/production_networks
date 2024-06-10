@@ -21,7 +21,6 @@ DIRTY_ENERGY_USE = ['Petro', 'FuelDist']
 
 ENERGY_SECTORS = DIRTY_ENERGY_SECTORS +  ['Power']
 
-
 def run_simulation(config):
     """Run the simulation with the specified configuration"""
     country = config['country']

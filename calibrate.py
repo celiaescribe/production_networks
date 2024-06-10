@@ -48,6 +48,7 @@ class CalibOutput:
     Omega_non_energy: pd.DataFrame
     Gamma: pd.DataFrame
     Leontieff: pd.DataFrame
+    Ghosh: pd.DataFrame
     Domestic: pd.DataFrame
     Delta: pd.DataFrame
     share_GNE: pd.Series
@@ -76,6 +77,7 @@ class CalibOutput:
                 (self.Omega_non_energy, "Omega_non_energy"),
                 (self.Gamma, "Gamma"),
                 (self.Leontieff, "Leontieff"),
+                (self.Ghosh, "Ghosh"),
                 (self.Domestic, "Domestic"),
                 (self.Delta, "Delta"),
                 (self.sectors_dirty_energy, "sectors_dirty_energy"),
@@ -160,6 +162,11 @@ class CalibOutput:
                 .drop(columns="long_description"),
                 axis=[0, 1], level_names=["Country", "Sector"]
             )
+            Ghosh = unflatten_index_in_df(
+                pd.read_excel(xls, sheet_name="Ghosh", index_col=0)
+                .drop(columns="long_description"),
+                axis=[0, 1], level_names=["Country", "Sector"]
+            )
             Domestic = unflatten_index_in_df(
                 pd.read_excel(xls, sheet_name="Domestic", index_col=0)
                 .drop(columns="long_description"),
@@ -185,7 +192,7 @@ class CalibOutput:
             descriptions.name = 0
 
         return cls(sectors, emissions, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable,
-                   psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy,
+                   psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Ghosh, Domestic, Delta, share_GNE, sectors_dirty_energy,
                    final_use_dirty_energy, descriptions)
 
     def equals(self, other):
@@ -208,6 +215,7 @@ class CalibOutput:
                 and same_df(self.Omega_non_energy, other.Omega_non_energy)
                 and same_df(self.Gamma, other.Gamma)
                 and same_df(self.Leontieff, other.Leontieff)
+                and same_df(self.Ghosh, other.Ghosh)
                 and same_df(self.Domestic, other.Domestic)
                 and same_df(self.Delta, other.Delta)
                 and same_df(self.sectors_dirty_energy, other.sectors_dirty_energy)
@@ -328,9 +336,13 @@ def get_main_stats(df, final_use):
     sectors = df.sum(axis=1).to_frame(name='pmXi')
     sectors['pyi'] = df.sum(axis=0) + final_use.sum(axis=1)  # definition of total output, obtained from total intermediate consumption and final use
 
+    # IMPORTANT: we do not define Leontieff matrix as is usually done in input-output models, we are actually working with its translate
     Gamma = df.div(sectors['pyi'], axis=0)  # direct coefficient matrix
     Leontieff = np.linalg.inv(np.eye(len(Gamma)) - Gamma)  # Leontieff matrix
     Leontieff = pd.DataFrame(Leontieff, index=Gamma.index, columns=Gamma.columns)
+
+    Ghosh = np.linalg.inv(np.eye(len(Gamma)) - df.div(sectors['pyi'], axis=1))  # Ghosh matrix
+    Ghosh = pd.DataFrame(Ghosh, index=Gamma.index, columns=Gamma.columns)
 
     original_order = df.columns.get_level_values('Sector').unique()
     Omega = df.groupby(level='Sector', axis=1).sum()  # share of costs for each sector
@@ -445,7 +457,7 @@ def get_main_stats(df, final_use):
 
     domestic_domar_weights = sectors['pyi'] / sectors['va'].groupby('Country').sum()
     sectors['domestic_domar_weights'] = domestic_domar_weights
-    return sectors, Gamma, Leontieff, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy
+    return sectors, Gamma, Leontieff, Ghosh, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy
 
 
 def networks_stats(Gamma, col_final_use, total_output):
@@ -481,19 +493,19 @@ def networks_stats(Gamma, col_final_use, total_output):
 
 if __name__ == '__main__':
     country = 'europe'
-    file_path = f'data_deep/{country}_RoW_IO_table_2014.xlsx'
-    file_path_emissions_Z = f'data_deep/{country}_RoW_emissions_Z_2014.xlsx'
-    file_path_emissions_Y = f'data_deep/{country}_RoW_emissions_Y_2014.xlsx'
+    file_path = f'inputs/{country}_RoW_IO_table_2014.xlsx'
+    file_path_emissions_Z = f'inputs/{country}_RoW_emissions_Z_2014.xlsx'
+    file_path_emissions_Y = f'inputs/{country}_RoW_emissions_Y_2014.xlsx'
 
     df, value_added, final_use, descriptions = process_excel(file_path)
 
     emissions_total = process_emissions(file_path_emissions_Z, file_path_emissions_Y)
 
-    sectors, Gamma, Leontieff, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy = get_main_stats(df, final_use)
+    sectors, Gamma, Leontieff, Ghosh, Omega, costs_energy, Omega_energy, Omega_non_energy, Domestic, psi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, xsi, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy = get_main_stats(df, final_use)
     phi = sectors.loc[:, sectors.columns.str.contains('phi_')]  # share of final consumption in total output
     phi = phi.rename(columns=lambda x: x.split('_')[1])
     phi.columns.names = ['Country']
-    calib = CalibOutput(sectors, emissions_total, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
+    calib = CalibOutput(sectors, emissions_total, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Ghosh, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
     calib.to_excel(f"outputs/calib_{country}.xlsx")
     calib2 = CalibOutput.from_excel(f"outputs/calib_{country}.xlsx")
     assert calib.equals(calib2)

@@ -81,13 +81,48 @@ TRANSFORM_LEGEND = {
     "Gas": "Gas extraction",
     "food": "Food shock",
     "energy": "Energy shock",
+    "efficiency": "Efficiency shock",
     "IO": "Input-Output",
     "D": "Demand",
     "D+CD": "Cobb-Douglas",
     "D+CD+CES": "CES"
 }
 
-def parse_outputs(folder, list_sectors, post_processing, file_selection='reference', configref=None):
+map_sensitivity = {
+    'theta': {
+        0.3: "Low",
+        0.5: "Ref",
+        0.6: "High",
+        0.95: "Very High"
+    },
+    'sigma': {
+        0.7: "Low",
+        0.9: "Ref",
+        0.95: "High"
+    },
+    'epsilon': {
+        0.001: "Ref",
+        0.2: "High",
+        0.95: "Very High"
+    },
+    'kappa': {
+        0.1: "Low",
+        0.5: "Ref",
+        0.9: "High"
+    },
+    'rho': {
+        0.1: "Low",
+        0.5: "Ref",
+        0.9: "High"
+    },
+    'nu': {
+        0.001: "Low",
+        0.5: "Ref",
+        0.9: "High"
+    }
+}
+
+def parse_outputs(folder, list_sectors, sensitivity, file_selection='reference', configref=None):
     """List files from a given folder according to conditions, and create a dictionary containing the files and corresponding configuration names. The goal is to automate the process.
     folder: Path
         Path to the folder containing the files
@@ -100,7 +135,7 @@ def parse_outputs(folder, list_sectors, post_processing, file_selection='referen
     configref: dict
         Reference configuration. Default is None. If None, the reference configuration is {'theta': 0.5, 'sigma': 0.9, 'epsilon': 0.001, 'delta': 0.9, 'mu': 0.9, 'nu': 0.001, 'kappa': 0.5, 'rho': 0.95}
     """
-    assert post_processing in ['reference', 'sensitivity_energyservices', 'sensitivity_durable', 'sensitivity_production']
+    assert sensitivity in ['reference', 'kappa', 'rho', 'nu', 'theta', 'sigma', 'epsilon']
     reference = {'theta': 0.5, 'sigma': 0.9, 'epsilon': 0.001, 'delta': 0.9, 'mu': 0.9, 'nu': 0.001, 'kappa': 0.5, 'rho': 0.9}
     if configref is not None:
         assert isinstance(configref, dict)
@@ -139,33 +174,59 @@ def parse_outputs(folder, list_sectors, post_processing, file_selection='referen
                     kappa_value = path.stem.split('kappa')[1].split('_')[0]
                     d[f'{sector} - {share} - {kappa_value}'] = path
             else:
-                if post_processing == 'reference':
+                if sensitivity == 'reference':
                     if all(reference[key] == current_values[key] for key in reference):
                         if sector in list_sectors:
                             d[sector] = path
-                elif post_processing == 'sensitivity_energyservices':  # parameter between energy and durables
-                    # Check if all parameters except kappa match their reference values
-                    if all(reference[key] == current_values[key] for key in reference if key != 'kappa'):
-                        kappa_name = 'Low' if current_values['kappa'] < 0.2 else 'Ref' if current_values[
-                                                                                              'kappa'] < 0.9 else 'High'
+                else:
+                    if all(reference[key] == current_values[key] for key in reference if key != sensitivity):
+                        param_name = map_sensitivity[sensitivity][current_values[sensitivity]]
                         if sector in list_sectors:
-                            d[f'{sector} - {kappa_name}'] = path
-
-                elif post_processing == 'sensitivity_durable':  # parameter between energy services and nondurables
-                    # Check if all parameters except rho match their reference values
-                    if all(reference[key] == current_values[key] for key in reference if key != 'rho'):
-                        rho_name = 'Very Low' if current_values['rho'] < 0.2 else 'Low' if current_values[
-                                                                                              'rho'] < 0.9 else 'Ref'
-                        if sector in list_sectors:
-                            d[f'{sector} - {rho_name}'] = path
-
-                elif post_processing == 'sensitivity_production':  # parameter between energy services and nondurables
-                    # Check if all parameters except nu match their reference values
-                    if all(reference[key] == current_values[key] for key in reference if key != 'nu'):
-                        nu_name = 'Ref' if current_values['nu'] < 0.2 else 'High' if current_values[
-                                                                                              'nu'] < 0.9 else 'Very High'
-                        if sector in list_sectors:
-                            d[f'{sector} - {nu_name}'] = path
+                            d[f'{sector} - {param_name}'] = path
+                # elif post_processing == 'sensitivity_energyservices':  # parameter between energy and durables
+                #     # Check if all parameters except kappa match their reference values
+                #     if all(reference[key] == current_values[key] for key in reference if key != 'kappa'):
+                #         kappa_name = 'Low' if current_values['kappa'] < 0.2 else 'Ref' if current_values[
+                #                                                                               'kappa'] < 0.9 else 'High'
+                #         if sector in list_sectors:
+                #             d[f'{sector} - {kappa_name}'] = path
+                #
+                # elif post_processing == 'sensitivity_durable':  # parameter between energy services and nondurables
+                #     # Check if all parameters except rho match their reference values
+                #     if all(reference[key] == current_values[key] for key in reference if key != 'rho'):
+                #         rho_name = 'Very Low' if current_values['rho'] < 0.2 else 'Low' if current_values[
+                #                                                                               'rho'] < 0.9 else 'Ref'
+                #         if sector in list_sectors:
+                #             d[f'{sector} - {rho_name}'] = path
+                #
+                # elif post_processing == 'sensitivity_production':  # parameter between energy services and nondurables
+                #     # Check if all parameters except nu match their reference values
+                #     if all(reference[key] == current_values[key] for key in reference if key != 'nu'):
+                #         nu_name = 'Ref' if current_values['nu'] < 0.2 else 'High' if current_values[
+                #                                                                               'nu'] < 0.9 else 'Very High'
+                #         if sector in list_sectors:
+                #             d[f'{sector} - {nu_name}'] = path
+                #
+                # elif post_processing == 'sensitivity_theta':  # parameter between energy services and nondurables
+                #     # Check if all parameters except rho match their reference values
+                #     if all(reference[key] == current_values[key] for key in reference if key != 'theta'):
+                #         theta_name = map_sensitivity[current_values['theta']]
+                #         if sector in list_sectors:
+                #             d[f'{sector} - {theta_name}'] = path
+                #
+                # elif post_processing == 'sensitivity_sigma':  # parameter between energy services and nondurables
+                #     # Check if all parameters except rho match their reference values
+                #     if all(reference[key] == current_values[key] for key in reference if key != 'sigma'):
+                #         sigma_name = map_sensitivity[current_values['sigma']]
+                #         if sector in list_sectors:
+                #             d[f'{sector} - {sigma_name}'] = path
+                #
+                # elif post_processing == 'sensitivity_epsilon':  # parameter between energy services and nondurables
+                #     # Check if all parameters except rho match their reference values
+                #     if all(reference[key] == current_values[key] for key in reference if key != 'epsilon'):
+                #         epsilon_name = map_sensitivity[current_values['epsilon']]
+                #         if sector in list_sectors:
+                #             d[f'{sector} - {epsilon_name}'] = path
 
     return d
 
@@ -180,7 +241,7 @@ def post_processing_new_consumer(d, param='kappa'):
 
 
 
-def parse_emissions(dict_paths, index_names, folderpath):
+def parse_emissions(dict_paths, index_names, folderpath, select_sensitivity=None):
     """Creates an output file which contains the variation of emissions for each country and each sector, in correct format.
     Function is used for plots only."""
     # Get emissions variation
@@ -217,9 +278,15 @@ def parse_emissions(dict_paths, index_names, folderpath):
         concatenated_dfs_absolute.append(emissions_absolute)
 
         emissions_detail = equilibrium_output.emissions_detail
-        emissions_detail.columns = pd.MultiIndex.from_tuples([(idx, index_values[0]) for idx in emissions_detail.columns], names=['Country', 'Sector'])
-        emissions_detail.index = pd.MultiIndex.from_tuples([tuple(idx.split('-')) for idx in emissions_detail.index], names=['Sector', 'Category'])
-        concatenated_dfs_detail.append(emissions_detail)
+        if select_sensitivity is not None:
+            if index_values[1] == select_sensitivity:
+                emissions_detail.columns = pd.MultiIndex.from_tuples([(idx, index_values[0]) for idx in emissions_detail.columns], names=['Country', 'Sector'])
+                emissions_detail.index = pd.MultiIndex.from_tuples([tuple(idx.split('-')) for idx in emissions_detail.index], names=['Sector', 'Category'])
+                concatenated_dfs_detail.append(emissions_detail)
+        else:
+            emissions_detail.columns = pd.MultiIndex.from_tuples([(idx, index_values[0]) for idx in emissions_detail.columns], names=['Country', 'Sector'])
+            emissions_detail.index = pd.MultiIndex.from_tuples([tuple(idx.split('-')) for idx in emissions_detail.index], names=['Sector', 'Category'])
+            concatenated_dfs_detail.append(emissions_detail)
     emissions_df = pd.concat(concatenated_dfs, axis=0)
     if 'emissions_single' in emissions_df.columns:
         emissions_df = emissions_df.rename(columns={
@@ -655,13 +722,13 @@ def absolute_emissions_barplot(df, sector, save=None, colors=None, figsize=(7, 7
 
 def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', format_y=lambda y, _: '{:.1f} %'.format(y), hline=True,
                                 display_title=True, rotation=0, save=None, filesuffix='.pdf', legend_loc='right', fontsize_big_xlabel=15,
-                                fontsize_small_xlabel=13, fontsize_legend_labels=13, dict_legend=None):
+                                fontsize_small_xlabel=13, fontsize_legend_labels=13, dict_legend=None, nb_sectors=10):
     """Displays the breakdown of emissions by sector and category"""
     n_columns = int(len(df.columns))
     y_max = df[df > 0].groupby([i for i in df.index.names if i != groupby]).sum().max().max() * 1.1
     y_min = df[df < 0].groupby([i for i in df.index.names if i != groupby]).sum().min().min() * 1.1
 
-    top_categories_sets = [set(df[col].abs().nlargest(10).index) for col in df]
+    top_categories_sets = [set(df[col].abs().nlargest(nb_sectors).index) for col in df]
     all_top_categories = set.union(*top_categories_sets)
 
     others_positive_sum = df.apply(lambda col: col[(~col.index.isin(all_top_categories)) & (col > 0)].groupby('Category').sum())
@@ -699,8 +766,10 @@ def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', format_y=lam
             df_temp.plot(ax=ax, kind='bar', stacked=True, linewidth=0, color=column_colors)
 
             ax = format_ax_new(ax, format_y=format_y, xinteger=True)
-            if (y_max > 0.6) or (y_min < -0.6):
+            if (y_min < -0.5):
                 ax.set_yticks(np.arange(np.floor(y_min), np.ceil(y_max) + 0.5, 0.5))
+            elif y_min < -0.1:
+                ax.set_yticks(np.arange(np.floor(y_min), np.ceil(y_max) + 0.2, 0.2))
             else:
                 ax.set_yticks(np.arange(y_min, y_max + 0.02, 0.02))
 

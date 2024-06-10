@@ -163,31 +163,38 @@ def same_df(df1, df2):
     )
 
 
-def get_shock_adjustment(shocks, intervention, psi_durable, psi_non_durable, costs_energy_services_final):
-    """Estimates the shock parameters for sectors not concerned by the intervention. The adjustment is made so that the budget share equation remains satisfied."""
-    if intervention in ['food', 'combined2']:
-        tmp = shocks['sector_IO']
-        tmp.index.names = ['Sector']
-        tmp = tmp[intervention]
-        tmp = tmp[tmp != 1].dropna()  # we extract only non-unitary values
-        tmp_durable = tmp[tmp.index.isin(DURABLE_GOODS)]
-        tmp_non_durable = tmp[tmp.index.isin(NON_DURABLE_GOODS)]
-        if intervention == 'food':
-            adjustment_x = (1-(psi_non_durable.loc[tmp_non_durable.index,:].mul(tmp_non_durable, axis=0)).sum()) / (1 - psi_non_durable.loc[tmp_non_durable.index,:].sum())
-        else:
-            adjustment_x = (1-(psi_durable.loc[tmp_durable.index,:].mul(tmp_durable, axis=0)).sum()) / (1 - psi_durable.loc[tmp_durable.index,:].sum())
-    elif intervention in ['energy']:
-        tmp = shocks['energy_durable_IO']
-        tmp.index.names = ['Sector']
-        tmp = tmp[intervention]
-        tmp = tmp[tmp != 1].dropna()  # we extract only non-unitary values
-        adjustment_x = (1-(costs_energy_services_final.loc[tmp.index,:].mul(tmp, axis=0)).sum()) / (1 - costs_energy_services_final.loc[tmp.index,:].sum())
-    return adjustment_x
-
 def load_config(config_file):
     """Load configuration file."""
     with open(Path('inputs/configs') / Path(config_file), 'r') as f:
         return json.load(f)
+
+
+def read_file_shocks(path):
+    """Reads the excel file defining the demand shocks. Those shocks include: sector-specific shocks, and nest-specific
+    shocks. In particular, shocks are for the nest between energy and durable goods, and the nest between energy services
+    and non-durable goods."""
+    with pd.ExcelFile(path) as xls:
+        shocks_sector = pd.read_excel(xls, sheet_name="sector", index_col=0, header=0)
+        shocks_energy_durable = pd.read_excel(xls, sheet_name="energy_durable", index_col=0, header=0)
+        shocks_nondurable_energyservices = pd.read_excel(xls, sheet_name="nondurable_energyservices", index_col=0, header=0)
+        shocks_sector_IO = pd.read_excel(xls, sheet_name="sector_IO", index_col=0, header=0)
+        shocks_energy_durable_IO = pd.read_excel(xls, sheet_name="energy_durable_IO", index_col=0, header=0)
+        shocks_nondurable_energyservices_IO = pd.read_excel(xls, sheet_name="nondurable_energyservices_IO", index_col=0, header=0)
+        shocks_sector_ROW = pd.read_excel(xls, sheet_name="sector_ROW", index_col=0, header=0)
+        shocks_energy_durable_ROW = pd.read_excel(xls, sheet_name="energy_durable_ROW", index_col=0, header=0)
+        shocks_nondurable_energyservices_ROW = pd.read_excel(xls, sheet_name="nondurable_energyservices_ROW", index_col=0, header=0)
+    shocks = {
+        'sector': shocks_sector,
+        'energy_durable': shocks_energy_durable,
+        'nondurable_energyservices': shocks_nondurable_energyservices,
+        'sector_IO': shocks_sector_IO,
+        'energy_durable_IO': shocks_energy_durable_IO,
+        'nondurable_energyservices_IO': shocks_nondurable_energyservices_IO,
+        'sector_ROW': shocks_sector_ROW,
+        'energy_durable_ROW': shocks_energy_durable_ROW,
+        'nondurable_energyservices_ROW': shocks_nondurable_energyservices_ROW,
+    }
+    return shocks
 
 
 def get_save_path(reference_parameters, country, s, uniform, new_consumer, labor=False, share=0):
@@ -217,3 +224,4 @@ def get_save_path(reference_parameters, country, s, uniform, new_consumer, labor
         l = ''
     path = f"{country}_{s}_theta{theta}_sigma{sigma}_epsilon{epsilon}_delta{delta}_mu{mu}_nu{nu}_kappa{kappa}_rho{rho}{u}{c}{share}{l}.xlsx"
     return path
+
