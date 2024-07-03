@@ -5,6 +5,7 @@ import numpy as np
 import logging
 from dataclasses import dataclass
 from utils import add_long_description, flatten_index, unflatten_index_in_df, same_df
+import argparse
 
 
 DIRTY_ENERGY_SECTORS = ['Coal', 'Lignite', 'Petrol', 'Gas', 'Coke', 'Petro', 'FuelDist']  # those sectors are responsible for GHG emissions when they are burnt
@@ -492,7 +493,13 @@ def networks_stats(Gamma, col_final_use, total_output):
     return result
 
 if __name__ == '__main__':
-    country = 'europe'
+    parser = argparse.ArgumentParser(description='Calibrate equilibrium quantities.')
+    parser.add_argument("--country", type=str, default='europe', help="Country to do the processing")
+    parser.add_argument("--abv", type=str, default='EUR', help="Country abbreviation")
+    args = parser.parse_args()
+    country = args.country  # we select the config we are interested in
+    country_abv = args.abv
+
     file_path = f'inputs/{country}_RoW_IO_table_2014.xlsx'
     file_path_emissions_Z = f'inputs/{country}_RoW_emissions_Z_2014.xlsx'
     file_path_emissions_Y = f'inputs/{country}_RoW_emissions_Y_2014.xlsx'

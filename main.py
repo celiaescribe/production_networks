@@ -13,7 +13,8 @@ import argparse
 CODE_COUNTRY = {
     'france': 'FRA',
     'united_states_of_america': 'USA',
-    'europe': 'EUR'
+    'europe': 'EUR',
+    'eu': 'EUR'
 }
 
 DIRTY_ENERGY_SECTORS = ['Coal', 'Lignite', 'Petrol', 'Gas', 'Coke', 'Petro', 'FuelDist']

@@ -111,14 +111,14 @@ map_sensitivity = {
         0.9: "High"
     },
     'rho': {
-        0.1: "Low",
-        0.5: "Ref",
-        0.9: "High"
+        0.1: "Very Low",
+        0.5: "Low",
+        0.9: "Ref"
     },
     'nu': {
-        0.001: "Low",
-        0.5: "Ref",
-        0.9: "High"
+        0.001: "Ref",
+        0.5: "High",
+        0.9: "Very High"
     }
 }
 

@@ -26,85 +26,85 @@ from pathlib import Path
 import argparse
 
 """Preprocessing module of the model
-This module extracts aggregated inputs from the GLORIA database. In particular, it extracts input-output, final demand, value-added and emissions tables.
+This module extracts aggregated inputs from the GLORIA database. In particular, it extracts input-output, final demand, value-added and emissions tables for a specified aggregation.
 """
 
+data_spec_year = {
+    2014: {
+        'MRIO': '20230314',
+        'satellite': '20230727'
+    },
+    2018: {
+        'MRIO':'20230315',
+        'satellite': '20230310'
+    }
+}
 
-def split_string(s):
-    """Function to split the string and exclude the parentheses content"""
-    parts = re.match(r'(.*) \([^)]*\) (.*)', s)
-    if parts:
-        return parts.group(1), parts.group(2)
-    else:
-        return s, ''
+def read_input_data(year):
+    """Read input data from GLORIA database, and specifies the year."""
+    spec_mrio = data_spec_year[year]['MRIO']
+    spec_satellite = data_spec_year[year]['satellite']
+    T = pd.read_csv(
+        f"GLORIA_MRIOs_57_{year}/{spec_mrio}_120secMother_AllCountries_002_T-Results_{year}_057_Markup001(full).csv",
+        header=None)  # transaction matrix
+    V = pd.read_csv(
+        f"GLORIA_MRIOs_57_{year}/{spec_mrio}_120secMother_AllCountries_002_V-Results_{year}_057_Markup001(full).csv",
+        header=None)  # value added matrix
+    Y = pd.read_csv(
+        f"GLORIA_MRIOs_57_{year}/{spec_mrio}_120secMother_AllCountries_002_Y-Results_{year}_057_Markup001(full).csv",
+        header=None)  # final demand matrix
 
-def split_string_new(s):
-    # Use a regular expression to split the string at the first parentheses, considering nested parentheses
-    parts = re.match(r'^(.*?)\(([^)]*)\)\s*(.*)$', s)
-    if parts:
-        country = parts.group(1).strip()
-        # Additional content inside the first parentheses (e.g., country code) is captured but not used
-        detail = parts.group(3).strip()
-        return country, detail
-    else:
-        return s, ''
-
-def replace_last_occurrence(s, target, replacement):
-    """Replaces the last occurence of target in string s. We uses complex reversing techniques, because
-    there is easy solution to do so in python"""
-    return s[::-1].replace(target[::-1], replacement[::-1], 1)[::-1]
-
-
-def aggregate_data(data, country_groups):
-    # Split column and index to MultiIndex
-    data.columns = pd.MultiIndex.from_tuples([split_string(c) for c in data.columns], names=['Country', 'Industry'])
-    data.index = pd.MultiIndex.from_tuples([split_string(i) for i in data.index], names=['Country', 'Detail'])
-
-    # Aggregate countries according to the country_groups dictionary
-    new_data = pd.DataFrame(index=data.index, columns=pd.MultiIndex.from_product([country_groups.keys(), data.columns.get_level_values(1).unique()]))
-
-    for group, countries in country_groups.items():
-        group_data = data.loc[:, data.columns.get_level_values('Country').isin(countries)]
-        group_sum = group_data.groupby(level='Industry', axis=1).sum(min_count=1)
-        new_data[group] = group_sum
-
-    return new_data
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Process GLORIA database.')
-    parser.add_argument("--country", type=str, default='France', help="Country to do the processing")
-    args = parser.parse_args()
-    country = args.country  # we select the config we are interested in
-
-    # Read CSV files
-    T = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_T-Results_2014_057_Markup001(full).csv", header=None)  # transaction matrix
-    V = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_V-Results_2014_057_Markup001(full).csv", header=None)  # value added matrix
-    Y = pd.read_csv("GLORIA_MRIOs_57_2014/20230314_120secMother_AllCountries_002_Y-Results_2014_057_Markup001(full).csv", header=None)  # final demand matrix
-
-
+    TQ = pd.read_csv(
+        f"GLORIA_MRIOs_57_{year}/{spec_satellite}_120secMother_AllCountries_002_TQ-Results_{year}_057_Markup001(full).csv",
+        header=None)  # satellite accounts, intermediate matrix
+    YQ = pd.read_csv(
+        f"GLORIA_MRIOs_57_{year}/{spec_satellite}_120secMother_AllCountries_002_YQ-Results_{year}_057_Markup001(full).csv",
+        header=None)  # satellite accounts, final demand
+    # commodity_prices = pd.read_csv(
+    #     "GLORIA_MRIOs_57_2014/GLORIA_MRIO_Loop059_part_IV_commodityprices/20240111_120secMother_AllCountries_002_Prices_2014_059_Markup001(full).csv",
+    #     header=None)
 
     # Read Excel sheets
     region = pd.read_excel("GLORIA_MRIOs_57_2014/GLORIA_ReadMe_057.xlsx", sheet_name="Regions")
     sectors = pd.read_excel("GLORIA_MRIOs_57_2014/GLORIA_ReadMe_057.xlsx", sheet_name="Sectors")
     labels = pd.read_excel("GLORIA_MRIOs_57_2014/GLORIA_ReadMe_057.xlsx", sheet_name="Sequential region-sector labels")
     sat_labels = pd.read_excel("GLORIA_MRIOs_57_2014/GLORIA_ReadMe_057.xlsx", sheet_name="Satellites")
-    #
+
     # Create abbreviation of sector names (example for a few sectors)
-    sectors['sec_short'] = ["Wheat","Maize","CerOth","Legume","Rice","Veget","Sugar","Tobac","Fibre","CropOth","Grape","FruitNut","CropBev", "SpicePhar","Seed",
-                            "Cattle","Sheep","Pig","Poultry","AnimOth","Forest","Fish","Crust","Coal","Lignite","Petrol", "Gas","IronOres","UranOres","AluOres",
-                            "CopperOres","GoldOres","LedZinSilOres","NickelOres","TinOres","NonferOthOres", "StoneSand","ChemFert","Salt","OthServ","BeefMeat",
-                            "SheepMeat","PorkMeat","PoultryMeat","MeatOth","FishProd","Cereal", "VegetProd","Fruit","FoodOth","Sweets","FatAnim","FatVeget","Dairy",
-                            "Beverage","TobacProd","Textile","Leather","Sawmill", "Paper","Print","Coke","Petro","NFert","OthFert","ChemPetro","ChemInorg","ChemOrg",
-                            "Pharma","ChemOth","Rubber","Plastic", "Clay","Ceramics","Cement","MinOth","IronSteel","Alu","Copper","Gold","LedZinSil","Nickel","Tin",
-                            "NonferOth","FabMetal", "Machine","Vehicle","TransOth","Repair","Electronic","Electrical","FurnOth","Power","FuelDist","Water","Waste",
-                            "Recovery", "ConstBuild","ConstCivil","TradeRep","Road","Rail","Pipe","WaterTrans","Air","Services","Post","Hospitality","Publishing",
-                            "Telecom","Info","Finance","Real","ProfSci","Admin","Public","Edu","Health","Arts","Oth"]
+    sectors['sec_short'] = ["Wheat", "Maize", "CerOth", "Legume", "Rice", "Veget", "Sugar", "Tobac", "Fibre", "CropOth",
+                            "Grape", "FruitNut", "CropBev", "SpicePhar", "Seed",
+                            "Cattle", "Sheep", "Pig", "Poultry", "AnimOth", "Forest", "Fish", "Crust", "Coal",
+                            "Lignite",
+                            "Petrol", "Gas", "IronOres", "UranOres", "AluOres",
+                            "CopperOres", "GoldOres", "LedZinSilOres", "NickelOres", "TinOres", "NonferOthOres",
+                            "StoneSand", "ChemFert", "Salt", "OthServ", "BeefMeat",
+                            "SheepMeat", "PorkMeat", "PoultryMeat", "MeatOth", "FishProd", "Cereal", "VegetProd",
+                            "Fruit",
+                            "FoodOth", "Sweets", "FatAnim", "FatVeget", "Dairy",
+                            "Beverage", "TobacProd", "Textile", "Leather", "Sawmill", "Paper", "Print", "Coke", "Petro",
+                            "NFert", "OthFert", "ChemPetro", "ChemInorg", "ChemOrg",
+                            "Pharma", "ChemOth", "Rubber", "Plastic", "Clay", "Ceramics", "Cement", "MinOth",
+                            "IronSteel",
+                            "Alu", "Copper", "Gold", "LedZinSil", "Nickel", "Tin",
+                            "NonferOth", "FabMetal", "Machine", "Vehicle", "TransOth", "Repair", "Electronic",
+                            "Electrical",
+                            "FurnOth", "Power", "FuelDist", "Water", "Waste",
+                            "Recovery", "ConstBuild", "ConstCivil", "TradeRep", "Road", "Rail", "Pipe", "WaterTrans",
+                            "Air",
+                            "Services", "Post", "Hospitality", "Publishing",
+                            "Telecom", "Info", "Finance", "Real", "ProfSci", "Admin", "Public", "Edu", "Health", "Arts",
+                            "Oth"]
 
     # Rename column names in labels DataFrame
     labels.columns = ["Lfd_Nr", "io_lab", "fd_lab", "va_lab"]
-    #
-    # Assuming 'region' is a DataFrame with a column 'Region_acronyms'
+    return T, V, Y, TQ, YQ, region, sectors, labels, sat_labels
 
+#
+
+# commodity_prices.columns = sectors['Sector_names']
+
+def define_region_mapping(region, country):
+    """Function to map the country names to aggregated regions."""
     # Convert ISO3 to UN region names and handle exceptions
     region['un_cat'] = region['Region_acronyms'].apply(lambda x: coco.convert(names=x, to='continent') if x not in ['XAF', 'XAM', 'XAS', 'XEU', 'SDS', 'DYE'] else None)
 
@@ -123,7 +123,37 @@ if __name__ == '__main__':
     # get unique values from region_mapping
     unique_values = set(region_mapping.values())
 
-    if country != 'Europe':
+    if country == 'EU':
+        row_mapping = {
+            'Africa': 'RoW',
+            'Americas': 'RoW',
+            'Asia': 'RoW',
+            'Europe': 'RoW',  # Default to RoW for Europe, will handle EU separately
+            'Oceania': 'RoW',
+            'America': 'RoW'
+        }
+
+        eu_countries = [
+            'AUT', 'BEL', 'BGR', 'HRV', 'CYP', 'CZE', 'DNK', 'EST', 'FIN', 'FRA', 'DEU',
+            'GRC', 'HUN', 'IRL', 'ITA', 'LVA', 'LTU', 'LUX', 'MLT', 'NLD', 'POL', 'PRT',
+            'ROU', 'SVK', 'SVN', 'ESP', 'SWE'
+        ]
+
+        region_mapping = {c: (
+            'EU' if region['Region_acronyms'][region['Region_names'] == c].values[0] in eu_countries else 'ROW') for c in region_mapping.keys()}
+
+    elif country == 'Europe':
+        row_mapping = {
+            'Africa': 'RoW',
+            'Americas': 'RoW',
+            'Asia': 'RoW',
+            'Europe': 'Europe',
+            'Oceania': 'RoW',
+            'America': 'RoW'
+        }
+
+        region_mapping = {c: row_mapping[region_mapping[c]] for c in region_mapping.keys()}
+    else:
         region_mapping[country] = country  # country is kept separatly
 
         row_mapping = {
@@ -137,22 +167,25 @@ if __name__ == '__main__':
         }
 
         region_mapping = {c: row_mapping[region_mapping[c]] for c in region_mapping.keys()}
-    else:  # we separate Europe from the Rest of the World
-        row_mapping = {
-            'Africa': 'RoW',
-            'Americas': 'RoW',
-            'Asia': 'RoW',
-            'Europe': 'Europe',
-            'Oceania': 'RoW',
-            'America': 'RoW'
-        }
+    return region_mapping
 
-        region_mapping = {c: row_mapping[region_mapping[c]] for c in region_mapping.keys()}
-
-    def map_country_to_region(country):
-        return region_mapping.get(country, country)
+def map_country_to_region(country, region_mapping):
+    return region_mapping.get(country, country)
 
 
+def preprocess_io_data(T, Y, V, labels, region_mapping):
+    """Function that takes as inputs the raw IO data (supply-use and final demand) and that creates aggregated tables that can be used for calibration.
+    T: pd.DataFrame
+        Intermediary consumption matrix
+    Y: pd.DataFrame
+        Final demand matrix
+    V: pd.DataFrame
+        Value added matrix
+    labels: pd.DataFrame
+        Sequential region-sector labels
+    region_mapping: dict
+        Mapping of countries to regions
+    """
     # Adding original labels to the inputs
     T.columns = labels['io_lab']
     T.index = labels['io_lab']
@@ -168,14 +201,15 @@ if __name__ == '__main__':
     # Get rid of some countries with problematic names
     list_countries_drop = ['Yemen Arab Republic/Yemen', 'Yugoslavia/Serbia', 'Zambia', 'Zimbabwe', 'CSSR/Czech Republic',
                            'Ethiopia/DR Ethiopia', 'USSR/Russian Federation', 'Sudan/North Sudan', 'DR Yemen']
+    list_countries_drop = ['Yemen Arab Republic/Yemen (1990/1991)', 'DR Yemen (Aden)']
     # #
     # # Extracting the use matrix, final demand matrix, value added matrix, and satellite accounts
     Z = T.loc[product_labs, industry_labs]  # use matrix
     Y = Y.loc[product_labs]  # final demand matrix
     V = V[industry_labs]  # value added matrix
 
-    V.index = pd.MultiIndex.from_tuples([split_string_new(i) for i in V.index], names=['Country', 'Detail'])
-    V.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in V.columns], names=['Country', 'Industry'])
+    V.index = pd.MultiIndex.from_tuples([split_string_on_final_parenthesis(i) for i in V.index], names=['Country', 'Detail'])
+    V.columns = pd.MultiIndex.from_tuples([split_string_on_final_parenthesis(c) for c in V.columns], names=['Country', 'Industry'])
     rows_to_drop = V.index.get_level_values('Country').isin(list_countries_drop)
     rows_to_drop = V.index[rows_to_drop]
 
@@ -189,8 +223,8 @@ if __name__ == '__main__':
     V.columns = V.columns.remove_unused_levels()
 
     # Apply the mapping to the index and columns
-    V.index = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in V.index])
-    V.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in V.columns])
+    V.index = pd.MultiIndex.from_tuples([(map_country_to_region(country, region_mapping), detail) for country, detail in V.index])
+    V.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country, region_mapping), industry) for country, industry in V.columns])
 
     # Group by regions, and sum the values
     V = V.groupby(level=[0, 1], axis=0).sum()
@@ -203,8 +237,8 @@ if __name__ == '__main__':
     V.columns = [' - '.join(col) for col in V.columns]
     V.columns = [c.replace(' industry', '') for c in V.columns]
 
-    Y.index = pd.MultiIndex.from_tuples([split_string_new(i) for i in Y.index], names=['Country', 'Industry'])
-    Y.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in Y.columns], names=['Country', 'Detail'])
+    Y.index = pd.MultiIndex.from_tuples([split_string_on_final_parenthesis(i) for i in Y.index], names=['Country', 'Industry'])
+    Y.columns = pd.MultiIndex.from_tuples([split_string_on_final_parenthesis(c) for c in Y.columns], names=['Country', 'Detail'])
 
     rows_to_drop = Y.index.get_level_values('Country').isin(list_countries_drop)
     rows_to_drop = Y.index[rows_to_drop]
@@ -216,16 +250,16 @@ if __name__ == '__main__':
     Y.columns = Y.columns.remove_unused_levels()
 
     # Apply the mapping to the index and columns
-    Y.index = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in Y.index])  # rename countries
-    Y.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in Y.columns])  # rename countries
+    Y.index = pd.MultiIndex.from_tuples([(map_country_to_region(country, region_mapping), detail) for country, detail in Y.index])  # rename countries
+    Y.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country, region_mapping), industry) for country, industry in Y.columns])  # rename countries
     Y = Y.groupby(level=[0, 1], axis=0).sum()  # sum for similar countries
     Y = Y.groupby(level=[0, 1], axis=1).sum()
     Y.index = [' - '.join(idx) for idx in Y.index]  # rename index
     Y.columns = [' - '.join(col) for col in Y.columns]
     Y.index = [replace_last_occurrence(i, ' product', '') for i in Y.index]
 
-    Z.index = pd.MultiIndex.from_tuples([split_string_new(i) for i in Z.index], names=['Country', 'Industry'])
-    Z.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in Z.columns], names=['Country', 'Industry'])
+    Z.index = pd.MultiIndex.from_tuples([split_string_on_final_parenthesis(i) for i in Z.index], names=['Country', 'Industry'])
+    Z.columns = pd.MultiIndex.from_tuples([split_string_on_final_parenthesis(c) for c in Z.columns], names=['Country', 'Industry'])
 
     rows_to_drop = Z.index.get_level_values('Country').isin(list_countries_drop)
     rows_to_drop = Z.index[rows_to_drop]
@@ -235,20 +269,36 @@ if __name__ == '__main__':
     Z.index = Z.index.remove_unused_levels()
     Z.columns = Z.columns.remove_unused_levels()
 
-    Z.index = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in Z.index])
-    Z.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in Z.columns])
+    Z.index = pd.MultiIndex.from_tuples([(map_country_to_region(country, region_mapping), detail) for country, detail in Z.index])
+    Z.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country, region_mapping), industry) for country, industry in Z.columns])
     Z = Z.groupby(level=[0, 1], axis=0).sum()
     Z = Z.groupby(level=[0, 1], axis=1).sum()
     Z.index = [' - '.join(idx) for idx in Z.index]
     Z.columns = [' - '.join(col) for col in Z.columns]
     Z.index = [replace_last_occurrence(i, ' product', '') for i in Z.index]
     Z.columns = [c.replace(' industry', '') for c in Z.columns]
+    return Z, Y, V
 
-    TQ = pd.read_csv("GLORIA_MRIOs_57_2014/20230727_120secMother_AllCountries_002_TQ-Results_2014_057_Markup001(full).csv", header=None)  # satellite accounts, intermediate matrix
-    YQ = pd.read_csv("GLORIA_MRIOs_57_2014/20230727_120secMother_AllCountries_002_YQ-Results_2014_057_Markup001(full).csv", header=None)  # satellite accounts, final demand
-    commodity_prices = pd.read_csv(
-        "GLORIA_MRIOs_57_2014/GLORIA_MRIO_Loop059_part_IV_commodityprices/20240111_120secMother_AllCountries_002_Prices_2014_059_Markup001(full).csv", header=None)
-    commodity_prices.columns = sectors['Sector_names']
+def preprocess_emissions_data(TQ, YQ, labels, sat_labels, system='OECD'):
+    """Function that takes as inputs the raw emissions data (supply and final demand) and that creates aggregated tables that can be used for calibration.
+    TQ: pd.DataFrame
+        Satellite data for each productive sector
+    YQ: pd.DataFrame
+        Satellite data for final demand
+    labels: pd.DataFrame
+        Sequential region-sector labels
+    sat_labels: pd.DataFrame
+        Satellite labels
+    system: str
+        System for which the emissions are extracted (e.g., 'OECD')
+    """
+    industry_labs = labels[labels['io_lab'].str.contains("industry")]['io_lab']
+    product_labs = labels[~labels['io_lab'].isin(industry_labs)]['io_lab']
+
+    # Get rid of some countries with problematic names
+    list_countries_drop = ['Yemen Arab Republic/Yemen', 'Yugoslavia/Serbia', 'Zambia', 'Zimbabwe', 'CSSR/Czech Republic',
+                           'Ethiopia/DR Ethiopia', 'USSR/Russian Federation', 'Sudan/North Sudan', 'DR Yemen']
+    list_countries_drop = ['Yemen Arab Republic/Yemen (1990/1991)', 'DR Yemen (Aden)']
     #
     # Adding labels to inputs
     TQ.columns = labels['io_lab']
@@ -257,28 +307,27 @@ if __name__ == '__main__':
     YQ.columns = labels['fd_lab'].dropna()
     YQ.index = sat_labels['Sat_indicator'] + " - " + sat_labels['Sat_unit']
 
-    YQ.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in YQ.columns], names=['Country', 'Detail'])
+    YQ.columns = pd.MultiIndex.from_tuples([split_string_on_final_parenthesis(c) for c in YQ.columns], names=['Country', 'Detail'])
     cols_to_drop = YQ.columns.get_level_values('Country').isin(list_countries_drop)
     cols_to_drop = YQ.columns[cols_to_drop]
     YQ = YQ.drop(columns=cols_to_drop)
     YQ.columns = YQ.columns.remove_unused_levels()
-    YQ.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), detail) for country, detail in YQ.columns])
+    YQ.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country, region_mapping), detail) for country, detail in YQ.columns])
     YQ = YQ.groupby(level=[0, 1], axis=1).sum()
     #
     ZQ = TQ[industry_labs]  # satellite accounts
-    ZQ.columns = pd.MultiIndex.from_tuples([split_string_new(c) for c in ZQ.columns], names=['Country', 'Industry'])
+    ZQ.columns = pd.MultiIndex.from_tuples([split_string_on_final_parenthesis(c) for c in ZQ.columns], names=['Country', 'Industry'])
     cols_to_drop = ZQ.columns.get_level_values('Country').isin(list_countries_drop)
     cols_to_drop = ZQ.columns[cols_to_drop]
     ZQ = ZQ.drop(columns=cols_to_drop)
     ZQ.columns = ZQ.columns.remove_unused_levels()
-    ZQ.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country), industry) for country, industry in ZQ.columns])
+    ZQ.columns = pd.MultiIndex.from_tuples([(map_country_to_region(country, region_mapping), industry) for country, industry in ZQ.columns])
     ZQ = ZQ.groupby(level=[0, 1], axis=1).sum()
     ZQ.columns = [' - '.join(col) for col in ZQ.columns]
     ZQ.columns = [c.replace(' industry', '') for c in ZQ.columns]
 
     # We  extract CO2 emissions from intermediate consumptions
     # We take total values for each of the gases, using the OECD classification
-    system = 'OECD'
     emissions_total_Z = ZQ.loc[ZQ.index.str.contains('total'),:]
     emissions_total_Z = emissions_total_Z.loc[emissions_total_Z.index.str.contains(system), :]
     emissions_total_Z = emissions_total_Z.T
@@ -394,18 +443,104 @@ if __name__ == '__main__':
     emissions_total_y = emissions_total_y.set_index('index')[f"GHG_total_{system}_consistent_ktco2eq"].to_frame()  # be careful, here the country corresponds to the consumption of the final sector
 
     emissions_total = pd.concat([emissions_total_Z, emissions_total_y], axis=0)
+    return emissions_total, emissions_total_Z, emissions_total_y
 
-    data_path = "GLORIA_MRIOs_57_2014/"
+def split_string(s):
+    """Function to split the string and exclude the parentheses content"""
+    parts = re.match(r'(.*) \([^)]*\) (.*)', s)
+    if parts:
+        return parts.group(1), parts.group(2)
+    else:
+        return s, ''
+
+def split_string_new(s):
+    # Use a regular expression to split the string at the first parentheses, considering nested parentheses
+    parts = re.match(r'^(.*?)\(([^)]*)\)\s*(.*)$', s)
+    if parts:
+        country = parts.group(1).strip()
+        # Additional content inside the first parentheses (e.g., country code) is captured but not used
+        detail = parts.group(3).strip()
+        return country, detail
+    else:
+        return s, ''
+
+
+def split_string_on_final_parenthesis(s):
+    """Splits country names with the rest (this can be a product, value chain or final demand specification"""
+    special_case_1 = "Growing beverage crops (coffee, tea etc) industry"
+    if special_case_1 in s:  # special case handling:
+        part1, part2 = s.split(special_case_1)[0], 'Growing beverage crops (coffee, tea etc) industry'
+        if part1.strip().endswith(')'):
+            part1 = part1.strip()[:part1.rfind('(')].strip()
+        return part1, part2
+
+    special_case_2 = "Growing beverage crops (coffee, tea etc) product"
+    if special_case_2 in s:  # special case handling:
+        part1, part2 = s.split(special_case_2)[0], 'Growing beverage crops (coffee, tea etc) product'
+        if part1.strip().endswith(')'):
+            part1 = part1.strip()[:part1.rfind('(')].strip()
+        return part1, part2
+
+    # Find the index of the final closing parenthesis
+    index = s.rfind(')')
+    # If the closing parenthesis is found, split the string
+    if index != -1:
+        part1 = s[:index + 1].strip()
+        part2 = s[index + 1:].strip()
+        # Remove the final parenthesis from part1 if it exists
+        if part1.endswith(')'):
+            part1 = part1[:part1.rfind('(')].strip()
+        return part1, part2
+    else:
+        return s, ''
+
+def replace_last_occurrence(s, target, replacement):
+    """Replaces the last occurence of target in string s. We uses complex reversing techniques, because
+    there is easy solution to do so in python"""
+    return s[::-1].replace(target[::-1], replacement[::-1], 1)[::-1]
+
+
+def aggregate_data(data, country_groups):
+    # Split column and index to MultiIndex
+    data.columns = pd.MultiIndex.from_tuples([split_string(c) for c in data.columns], names=['Country', 'Industry'])
+    data.index = pd.MultiIndex.from_tuples([split_string(i) for i in data.index], names=['Country', 'Detail'])
+
+    # Aggregate countries according to the country_groups dictionary
+    new_data = pd.DataFrame(index=data.index, columns=pd.MultiIndex.from_product([country_groups.keys(), data.columns.get_level_values(1).unique()]))
+
+    for group, countries in country_groups.items():
+        group_data = data.loc[:, data.columns.get_level_values('Country').isin(countries)]
+        group_sum = group_data.groupby(level='Industry', axis=1).sum(min_count=1)
+        new_data[group] = group_sum
+
+    return new_data
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Process GLORIA database.')
+    parser.add_argument("--country", type=str, default='France', help="Country to do the processing")
+    parser.add_argument("--year", type=int, default=2014, help="Year to use in the IO table")
+    args = parser.parse_args()
+    country = args.country  # we select the config we are interested in
+    year = int(args.year)
+
+    T, V, Y, TQ, YQ, region, sectors, labels, sat_labels = read_input_data(year)
+
+    region_mapping = define_region_mapping(region, country)
+    Z, Y, V = preprocess_io_data(T, Y, V, labels, region_mapping)
+    emissions_total, emissions_total_Z, emissions_total_y = preprocess_emissions_data(TQ, YQ, labels, sat_labels, system='OECD')
+
+    data_path = f"GLORIA_MRIOs_57_{year}/"
 
     country = country.lower()
     if len(country.split(' ')) > 1:
         country = '_'.join(country.split(' '))  # we process the name of the country for saving it
     #
-    Z.to_pickle(Path(data_path) / Path(f"Z_{country}_RoW_2014.pkl"))
-    Y.to_pickle(Path(data_path) / Path(f"Y_{country}_RoW_2014.pkl"))
-    V.to_pickle(Path(data_path) / Path(f"V_{country}_RoW_2014.pkl"))
-    emissions_total_Z.to_pickle(Path(data_path) / Path(f"emissions_Z_{country}_RoW_2014.pkl"))
-    emissions_total_y.to_pickle(Path(data_path) / Path(f"emissions_Y_{country}_RoW_2014.pkl"))
+    Z.to_pickle(Path(data_path) / Path(f"Z_{country}_RoW_{year}.pkl"))
+    Y.to_pickle(Path(data_path) / Path(f"Y_{country}_RoW_{year}.pkl"))
+    V.to_pickle(Path(data_path) / Path(f"V_{country}_RoW_{year}.pkl"))
+    emissions_total_Z.to_pickle(Path(data_path) / Path(f"emissions_Z_{country}_RoW_{year}.pkl"))
+    emissions_total_y.to_pickle(Path(data_path) / Path(f"emissions_Y_{country}_RoW_{year}.pkl"))
     #
     # Save other objects
     with open(Path(data_path) / Path("sectors.pkl"), 'wb') as f:

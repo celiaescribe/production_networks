@@ -14,14 +14,8 @@
 # Original author Célia Escribe <celia.escribe@gmail.com>
 
 import pandas as pd
-import country_converter as coco
-import os
-import pickle
-from numpy.linalg import inv
-import numpy as np
-import re
-import gc
-from pathlib import Path
+import argparse
+
 
 """Postprocessing module
 This module performs some postprocessing on the input-output table, the final demand table, the value-added table, and the emissions tables.
@@ -32,11 +26,13 @@ This module performs some postprocessing on the input-output table, the final de
 country_dict = {
     'France': 'FRA',
     'RoW': 'ROW',
+    'ROW': 'ROW',
     'United States of America': 'USA',
     'Denmark': 'DNK',
     'Germany': 'DEU',
     'Spain': 'SPA',
-    'Europe': 'EUR'
+    'Europe': 'EUR',
+    'EU': 'EUR'
 }
 #
 finaldemand_dict = {
@@ -114,11 +110,13 @@ def sort_columns(columns, country, nb=2):
 
 if __name__ == '__main__':
     # ############### POST PROCESSING ######################
-
+    parser = argparse.ArgumentParser(description='Process GLORIA database.')
+    parser.add_argument("--country", type=str, default='europe', help="Country to do the processing")
+    args = parser.parse_args()
+    country = args.country  # we select the config we are interested in
     # Define inputs path
     data_path = "GLORIA_MRIOs_57_2014"
 
-    country = 'europe'
 
     # Read the inputs
     Z = pd.read_pickle(f"{data_path}/Z_{country}_RoW_2014.pkl")
@@ -219,8 +217,8 @@ if __name__ == '__main__':
 
     final_io_table[final_io_table == 0] = 0.0001
     #
-    final_io_table.to_excel(f'GLORIA_MRIOs_57_2014/{country}_RoW_IO_table_2014.xlsx', sheet_name='table')
-    emissions_Z.to_excel(f'GLORIA_MRIOs_57_2014/{country}_RoW_emissions_Z_2014.xlsx', sheet_name='emissions')
-    emissions_Y.to_excel(f'GLORIA_MRIOs_57_2014/{country}_RoW_emissions_Y_2014.xlsx', sheet_name='emissions')
+    final_io_table.to_excel(f'inputs/{country}_RoW_IO_table_2014.xlsx', sheet_name='table')
+    emissions_Z.to_excel(f'inputs/{country}_RoW_emissions_Z_2014.xlsx', sheet_name='emissions')
+    emissions_Y.to_excel(f'inputs/{country}_RoW_emissions_Y_2014.xlsx', sheet_name='emissions')
 
 
