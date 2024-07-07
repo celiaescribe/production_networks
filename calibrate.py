@@ -495,14 +495,14 @@ def networks_stats(Gamma, col_final_use, total_output):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Calibrate equilibrium quantities.')
     parser.add_argument("--country", type=str, default='europe', help="Country to do the processing")
-    parser.add_argument("--abv", type=str, default='EUR', help="Country abbreviation")
+    parser.add_argument("--year", type=int, default=2014, help="Year for the MRIO")
     args = parser.parse_args()
     country = args.country  # we select the config we are interested in
-    country_abv = args.abv
+    year = int(args.year)
 
-    file_path = f'inputs/{country}_RoW_IO_table_2014.xlsx'
-    file_path_emissions_Z = f'inputs/{country}_RoW_emissions_Z_2014.xlsx'
-    file_path_emissions_Y = f'inputs/{country}_RoW_emissions_Y_2014.xlsx'
+    file_path = f'inputs/{country}_RoW_IO_table_{year}.xlsx'
+    file_path_emissions_Z = f'inputs/{country}_RoW_emissions_Z_{year}.xlsx'
+    file_path_emissions_Y = f'inputs/{country}_RoW_emissions_Y_{year}.xlsx'
 
     df, value_added, final_use, descriptions = process_excel(file_path)
 
@@ -513,8 +513,8 @@ if __name__ == '__main__':
     phi = phi.rename(columns=lambda x: x.split('_')[1])
     phi.columns.names = ['Country']
     calib = CalibOutput(sectors, emissions_total, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Ghosh, Domestic, Delta, share_GNE, sectors_dirty_energy, final_use_dirty_energy, descriptions)
-    calib.to_excel(f"outputs/calib_{country}.xlsx")
-    calib2 = CalibOutput.from_excel(f"outputs/calib_{country}.xlsx")
+    calib.to_excel(f"outputs/calib_{country}_{year}.xlsx")
+    calib2 = CalibOutput.from_excel(f"outputs/calib_{country}_{year}.xlsx")
     assert calib.equals(calib2)
 
 # networks_stats(Gamma, col_final_use, total_output)

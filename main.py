@@ -9,6 +9,7 @@ import pandas as pd
 import datetime
 from pathlib import Path
 import argparse
+import json
 
 CODE_COUNTRY = {
     'france': 'FRA',
@@ -25,13 +26,17 @@ ENERGY_SECTORS = DIRTY_ENERGY_SECTORS +  ['Power']
 def run_simulation(config):
     """Run the simulation with the specified configuration"""
     country = config['country']
+    year = config['year']
     domestic_country = CODE_COUNTRY[country]
-    filename = f"outputs/calib_{country}.xlsx"
+    filename = f"outputs/calib_{country}_{year}.xlsx"
 
     folder_date = datetime.datetime.now().strftime("%Y%m%d")
     folder_to_save = Path(f'outputs/simulations_{folder_date}')
     if not folder_to_save.is_dir():
         os.mkdir(folder_to_save)
+
+    with open(os.path.join(folder_to_save, 'config.json'), "w") as outfile:
+        outfile.write(json.dumps(config, indent=4))
 
     calib = CalibOutput.from_excel(filename)
     if config['new_consumer']['activated']:

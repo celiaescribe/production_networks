@@ -112,18 +112,21 @@ if __name__ == '__main__':
     # ############### POST PROCESSING ######################
     parser = argparse.ArgumentParser(description='Process GLORIA database.')
     parser.add_argument("--country", type=str, default='europe', help="Country to do the processing")
+    parser.add_argument("--year", type=int, default=2014, help="Year for the MRIO")
     args = parser.parse_args()
     country = args.country  # we select the config we are interested in
+    year = int(args.year)
+
     # Define inputs path
-    data_path = "GLORIA_MRIOs_57_2014"
+    data_path = f"GLORIA_MRIOs_57_{year}"
 
 
     # Read the inputs
-    Z = pd.read_pickle(f"{data_path}/Z_{country}_RoW_2014.pkl")
-    Y = pd.read_pickle(f"{data_path}/Y_{country}_RoW_2014.pkl")
-    V = pd.read_pickle(f"{data_path}/V_{country}_RoW_2014.pkl")
-    emissions_Z = pd.read_pickle(f"{data_path}/emissions_Z_{country}_RoW_2014.pkl")
-    emissions_Y = pd.read_pickle(f"{data_path}/emissions_Y_{country}_RoW_2014.pkl")
+    Z = pd.read_pickle(f"{data_path}/Z_{country}_RoW_{year}.pkl")
+    Y = pd.read_pickle(f"{data_path}/Y_{country}_RoW_{year}.pkl")
+    V = pd.read_pickle(f"{data_path}/V_{country}_RoW_{year}.pkl")
+    emissions_Z = pd.read_pickle(f"{data_path}/emissions_Z_{country}_RoW_{year}.pkl")
+    emissions_Y = pd.read_pickle(f"{data_path}/emissions_Y_{country}_RoW_{year}.pkl")
 
     # ZQ = pd.read_pickle(f"{data_path}/ZQ.pkl")
     # region = pd.read_pickle(f"{data_path}/region.pkl")
@@ -217,8 +220,8 @@ if __name__ == '__main__':
 
     final_io_table[final_io_table == 0] = 0.0001
     #
-    final_io_table.to_excel(f'inputs/{country}_RoW_IO_table_2014.xlsx', sheet_name='table')
-    emissions_Z.to_excel(f'inputs/{country}_RoW_emissions_Z_2014.xlsx', sheet_name='emissions')
-    emissions_Y.to_excel(f'inputs/{country}_RoW_emissions_Y_2014.xlsx', sheet_name='emissions')
+    final_io_table.to_excel(f'inputs/{country}_RoW_IO_table_{year}.xlsx', sheet_name='table')
+    emissions_Z.to_excel(f'inputs/{country}_RoW_emissions_Z_{year}.xlsx', sheet_name='emissions')
+    emissions_Y.to_excel(f'inputs/{country}_RoW_emissions_Y_{year}.xlsx', sheet_name='emissions')
 
 

@@ -19,7 +19,8 @@ import argparse
 CODE_COUNTRY = {
     'france': 'FRA',
     'united_states_of_america': 'USA',
-    'europe': 'EUR'
+    'europe': 'EUR',
+    'eu': 'EUR'
 }
 
 # Configure logging
@@ -488,8 +489,9 @@ def run_equilibrium_labor(ki_hat, betai_hat, alpha_hat, a_efficiency, sectors, e
 def run_simulation_labor(config):
     """Run the simulation with the specified configuration"""
     country = config['country']
+    year = config['year']
     domestic_country = CODE_COUNTRY[country]
-    filename = f"outputs/calib_{country}.xlsx"
+    filename = f"outputs/calib_{country}_{year}.xlsx"
 
     folder_date = datetime.datetime.now().strftime("%Y%m%d")
     folder_to_save = Path(f'outputs/simulations_{folder_date}')

@@ -1,11 +1,12 @@
 {
   "country": "eu",
+  "year": 2018,
   "shocks": ["food", "energy"],
   "efficiency": {
     "activated": false,
     "value": 1.069
   },
-  "fileshocks": "inputs/shocks_demand_09042024.xlsx",
+  "fileshocks": "inputs/shocks_demand_05072024.xlsx",
   "uniform_shock": false,
   "new_consumer": {
     "activated": false,

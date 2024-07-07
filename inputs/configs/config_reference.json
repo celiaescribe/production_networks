@@ -1,5 +1,6 @@
 {
   "country": "europe",
+  "year": 2018,
   "shocks": ["food", "energy"],
   "efficiency": {
     "activated": false,

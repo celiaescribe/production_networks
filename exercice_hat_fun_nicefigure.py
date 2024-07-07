@@ -739,7 +739,7 @@ def get_shock_adjustment(shocks, intervention, psi_durable, psi_non_durable, cos
 
 if __name__ == '__main__':
 
-    config = load_config("config_reference.json")
+    config = load_config("config_eu.json")
     country = config['country']
     domestic_country = 'EUR'
     filename = f"outputs/calib_{country}.xlsx"
@@ -751,7 +751,7 @@ if __name__ == '__main__':
     sectors, emissions, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.phi, calib.costs_energy_final, calib.psi_energy, calib.psi_non_energy, calib.costs_durable_final, calib.psi_durable, calib.psi_non_durable, calib.costs_energy_services_final, calib.Omega, calib.costs_energy, calib.Omega_energy, calib.Omega_non_energy, calib.Gamma, calib.Leontieff, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
 
     shocks = read_file_shocks(config['fileshocks'])
-    adjust = get_shock_adjustment(shocks, "combined", psi_durable, psi_non_durable, costs_energy_services_final)
+    adjust = get_shock_adjustment(shocks, "energy", psi_durable, psi_non_durable, costs_energy_services_final)
 
 
     # list_methods = ['hybr', 'lm', 'broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']

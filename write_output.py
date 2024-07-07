@@ -49,9 +49,13 @@ COLORS_DICT = {
     "Veget": "#FFFF33",  # Lemon Yellow
     "VegetProd": "#4DAF4A",  # Lemon Yellow
     "Gas": "#A65628",  # Lemon Yellow
+    "Coke": "#000080",  # Lemon Yellow
+    "TradeRep": "#F781BF",  # Lemon Yellow
     "Ceramics": "#008080",  # Lemon Yellow
     "FishProd": "#984EA3",
-    "Coal": "#FFFF33"
+    "Coal": "#FFFF33",
+    "Vehicle": "#808000",  # Olive Green
+    "Rail": "#E41A1C",  # Crimson
 }
 
 
@@ -79,6 +83,8 @@ TRANSFORM_LEGEND = {
     "CerOth": "Growing Cereals",
     "FoodOth": "Food Products",
     "Gas": "Gas extraction",
+    "Rail": "Rail transport",
+    "Vehicle": "Motor vehicles",
     "food": "Food shock",
     "energy": "Energy shock",
     "efficiency": "Efficiency shock",
@@ -722,7 +728,7 @@ def absolute_emissions_barplot(df, sector, save=None, colors=None, figsize=(7, 7
 
 def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', format_y=lambda y, _: '{:.1f} %'.format(y), hline=True,
                                 display_title=True, rotation=0, save=None, filesuffix='.pdf', legend_loc='right', fontsize_big_xlabel=15,
-                                fontsize_small_xlabel=13, fontsize_legend_labels=13, dict_legend=None, nb_sectors=10):
+                                fontsize_small_xlabel=13, fontsize_legend_labels=13, dict_legend=None, nb_sectors=10, ymin_lim=None, ymax_lim=None):
     """Displays the breakdown of emissions by sector and category"""
     n_columns = int(len(df.columns))
     y_max = df[df > 0].groupby([i for i in df.index.names if i != groupby]).sum().max().max() * 1.1
@@ -771,12 +777,18 @@ def emissions_breakdown_barplot(df, figsize=(7, 7), groupby='Type', format_y=lam
             elif y_min < -0.1:
                 ax.set_yticks(np.arange(np.floor(y_min), np.ceil(y_max) + 0.2, 0.2))
             else:
-                ax.set_yticks(np.arange(y_min, y_max + 0.02, 0.02))
+                ax.set_yticks(np.arange(y_min, y_max + 0.05, 0.05))
 
             # ax = format_ax(ax, format_y=format_y, ymin=0, xinteger=True)
             ax.spines['left'].set_visible(False)
-            ax.set_ylim(ymax=y_max)
-            ax.set_ylim(ymin=y_min)
+            if ymax_lim is None:
+                ax.set_ylim(ymax=y_max)
+            else:
+                ax.set_ylim(ymax=ymax_lim)
+            if ymin_lim is None:
+                ax.set_ylim(ymin=y_min)
+            else:
+                ax.set_ylim(ymin=ymin_lim)
             ax.set_xlabel('')
 
             if hline:

@@ -1,5 +1,6 @@
 {
   "country": "europe",
+  "year": 2014,
   "shocks": ["efficiency"],
   "efficiency": {
     "activated": true,
