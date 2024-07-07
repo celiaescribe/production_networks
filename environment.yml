@@ -1,0 +1,12 @@
+name: networks
+channels:
+  - conda-forge
+dependencies:
+  - matplotlib=3.8.2
+  - numpy=1.26.3
+  - pandas=2.2.0
+  - python=3.12.1
+  - seaborn=0.13.2
+  - pip:
+    - openpyxl==3.1.0
+prefix: /Users/celia/miniforge3/envs/networks
