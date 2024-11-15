@@ -2,7 +2,7 @@ import os
 from copy import deepcopy
 
 from calibrate import add_final_consumer_share
-from exercice_hat_fun_nicefigure import CalibOutput, read_file_shocks, process_shocks, run_equilibrium
+from evaluate_shock import CalibOutput, read_file_shocks, process_shocks, run_equilibrium
 from utils import load_config, get_save_path
 import logging
 import pandas as pd

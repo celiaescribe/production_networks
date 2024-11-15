@@ -3,3 +3,5 @@ GLORIA_MRIOs_57_2014/
 .idea
 .DS_Store
 misc.xml
+outputs/
+scratch.py

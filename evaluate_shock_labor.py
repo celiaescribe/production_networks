@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 import logging
 from calibrate import CalibOutput
-from exercice_hat_fun_nicefigure import read_file_shocks, variation_emission, process_shocks
+from evaluate_shock import read_file_shocks, variation_emission, process_shocks
 from scipy.optimize import fsolve, root, minimize, approx_fprime
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
