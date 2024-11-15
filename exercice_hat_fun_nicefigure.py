@@ -715,7 +715,7 @@ def input_output_calculation(betai_hat, Leontieff, Gamma, phi, sectors, sectors_
     return variation_emissions, emissions_breakdown
 
 
-def get_shock_adjustment(shocks, intervention, psi_durable, psi_non_durable, costs_energy_services_final):
+def get_shock_adjustment(shocks, intervention, psi_durable, psi_non_durable, costs_energy_services_final, costs_durable_final):
     """Estimates the shock parameters for sectors not concerned by the intervention. The adjustment is made so that the budget share equation remains satisfied."""
     if intervention in ['food', 'combined']:
         tmp = shocks['sector_IO']
@@ -734,15 +734,22 @@ def get_shock_adjustment(shocks, intervention, psi_durable, psi_non_durable, cos
         tmp = tmp[intervention]
         tmp = tmp[tmp != 1].dropna()  # we extract only non-unitary values
         adjustment_x = (1-(costs_energy_services_final.loc[tmp.index,:].mul(tmp, axis=0)).sum()) / (1 - costs_energy_services_final.loc[tmp.index,:].sum())
+    elif intervention in ['energyservices']:
+        tmp = shocks['nondurable_energyservices_IO']
+        tmp.index.names = ['Sector']
+        tmp = tmp[intervention]
+        tmp = tmp[tmp != 1].dropna()  # we extract only non-unitary values
+        adjustment_x = (1-(costs_durable_final.loc[tmp.index,:].mul(tmp, axis=0)).sum()) / (1 - costs_durable_final.loc[tmp.index,:].sum())
     return adjustment_x
 
 
 if __name__ == '__main__':
 
-    config = load_config("config_eu.json")
+    config = load_config("config_eu_ES.json")
     country = config['country']
     domestic_country = 'EUR'
-    filename = f"outputs/calib_{country}.xlsx"
+    year = 2018
+    filename = f"outputs/calib_{country}_{year}.xlsx"
 
     calib = CalibOutput.from_excel(filename)
     if config['new_consumer']['activated']:
@@ -751,7 +758,7 @@ if __name__ == '__main__':
     sectors, emissions, xsi, psi, phi, costs_energy_final, psi_energy, psi_non_energy, costs_durable_final, psi_durable, psi_non_durable, costs_energy_services_final, Omega, costs_energy, Omega_energy, Omega_non_energy, Gamma, Leontieff, Domestic, Delta, sectors_dirty_energy, final_use_dirty_energy, share_GNE, descriptions = calib.sectors, calib.emissions, calib.xsi, calib.psi, calib.phi, calib.costs_energy_final, calib.psi_energy, calib.psi_non_energy, calib.costs_durable_final, calib.psi_durable, calib.psi_non_durable, calib.costs_energy_services_final, calib.Omega, calib.costs_energy, calib.Omega_energy, calib.Omega_non_energy, calib.Gamma, calib.Leontieff, calib.Domestic, calib.Delta, calib.sectors_dirty_energy, calib.final_use_dirty_energy, calib.share_GNE, calib.descriptions
 
     shocks = read_file_shocks(config['fileshocks'])
-    adjust = get_shock_adjustment(shocks, "energy", psi_durable, psi_non_durable, costs_energy_services_final)
+    adjust = get_shock_adjustment(shocks, "energyservices", psi_durable, psi_non_durable, costs_energy_services_final, costs_durable_final)
 
 
     # list_methods = ['hybr', 'lm', 'broyden1', 'broyden2', 'anderson', 'linearmixing', 'diagbroyden', 'excitingmixing', 'krylov', 'df-sane']
